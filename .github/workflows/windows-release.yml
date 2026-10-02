@@ -21,6 +21,8 @@ jobs:
           $p = "win-native/ForgeOS.cpp"
           $s = Get-Content $p -Raw
           $s = $s.Replace("disk=forge::widen(argv[++i]);","disk=std::filesystem::path(argv[++i]);")
+          if ($s -notmatch 'static forge::Desktop\* g=') { throw "Native source marker missing" }
+          $s = [regex]::Replace($s, '(\r?\n)(static forge::Desktop\* g=)', '$1}$1$2', 1)
           Set-Content $p -Value $s -Encoding utf8
 
       - name: Configure MSVC Release
