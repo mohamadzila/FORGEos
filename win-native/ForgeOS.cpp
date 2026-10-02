@@ -171,7 +171,7 @@ static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
     HBITMAP oldBmp=back?(HBITMAP)SelectObject(back,bmp):nullptr;
     if(back&&bmp&&g){
       g->draw(back,W,H);
-      BitBlt(screen,0,0,W,H,back,0,0,W,H,SRCCOPY);
+      BitBlt(screen,0,0,W,H,back,0,0,SRCCOPY);
     }
     if(back&&oldBmp)SelectObject(back,oldBmp);
     if(bmp)DeleteObject(bmp);
