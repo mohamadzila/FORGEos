@@ -169,8 +169,9 @@ public:
     Window*w=find();if(!w)return;
     if(w->app==SNAKE){if(v==VK_UP&&dir!=3)dir=1;else if(v==VK_RIGHT&&dir!=2)dir=0;else if(v==VK_DOWN&&dir!=1)dir=3;else if(v==VK_LEFT&&dir!=0)dir=2;}
     else if(w->app==TERM){if(v==VK_RETURN){command(*w);w->input.clear();}else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();}
-    else if(w->app==CALC){if(v==VK_RETURN)w->text=calc(w->input);else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();else if(v>=32&&v<127)w->input.push_back((char)v);}
-    else if(w->app==EDIT){if(v==VK_F2){fs.put("/Documents/Welcome.fdoc",w->text);fs.save();status="saved";}else if(v==VK_BACK&&!w->text.empty())w->text.pop_back();}
+    else if(w->app==CALC){if(v==VK_RETURN)w->text=calc(w->input);else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();}
+    else if(w->app==EDIT){if(v==VK_F2||(ctrl&&v=='S')){fs.put("/Documents/Welcome.fdoc",w->text);fs.save();status="saved";toast="Document saved";toastUntil=frameTicks+30;}else if(v==VK_BACK&&!w->text.empty())w->text.pop_back();}
+    else if(w->app==PAINT&&v==VK_ESCAPE){paintPts.clear();toast="Canvas cleared";toastUntil=frameTicks+30;}
     else if(w->app==SETTINGS&&v==VK_RETURN){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}
   }
   void charInput(UINT ch){
@@ -178,7 +179,7 @@ public:
     if(w->app==TERM){if(ch>=32&&ch<127)w->input.push_back((char)ch);}
     else if(w->app==CALC){if(ch>=32&&ch<127)w->input.push_back((char)ch);}
     else if(w->app==EDIT){if(ch==13)w->text+="\n";else if(ch>=32&&ch<127)w->text.push_back((char)ch);}
-    else if(w->app==BROWSER&&browserFocus){if(ch==13){w->text="Requested URL: "+w->input;browserFocus=false;}else if(ch>=32&&ch<127)w->input.push_back((char)ch);}
+    else if(w->app==BROWSER&&browserFocus){if(ch==13){std::string e;w->text=fetchUrl(w->input,e);if(w->text.empty())w->text="Browser error: "+e;browserFocus=false;toast="Page loaded";toastUntil=frameTicks+35;}else if(ch>=32&&ch<127)w->input.push_back((char)ch);}
   }
   void mouseDown(int x,int y,int W,int H){
     desktopW=W;desktopH=H;
@@ -198,13 +199,32 @@ public:
       if(w->maximized)return;
       drag=true;ox=x-w->r.left;oy=y-w->r.top;return;
     }
+    if(w->app==FEXE&&ly>=160){
+      auto entries=fs.list("/System/Bin");int idx=(ly-160)/30;int k=0;
+      for(auto&n:entries)if(n.size()>5&&n.rfind(".fexe")==n.size()-5){if(k==idx){FExeImage im;std::string e;if(load_fexe(fs.read("/System/Bin/"+n),im,e)){u32 v=0;run_fexe(im,v);w->text="File: /System/Bin/"+n+"\\nMagic: FEXE\\nArchitecture: Forge32\\nChecksum: valid\\nApp ID: "+std::to_string(im.app_id)+"\\nVM result: "+std::to_string(v);}else w->text="FEXE error: "+e;}return;}k++;
+    }
+    if(w->app==CALC){
+      int by0=132;int row=(ly-by0)/40,col=lx/86;
+      if(ly>=by0&&ly<by0+200&&col>=0&&col<4&&lx>=0&&lx<344){
+        const char*keys[20]={"7","8","9","/","4","5","6","*","1","2","3","-","0",".","C","+","=","<-","^"," "};
+        int idx=row*4+col;
+        if(idx>=0&&idx<20){
+          std::string k=keys[idx];
+          if(k=="=")w->text=calc(w->input);
+          else if(k=="C"){w->input.clear();w->text.clear();}
+          else if(k=="<-"){if(!w->input.empty())w->input.pop_back();}
+          else if(k!=" ")w->input+=k;
+          return;
+        }
+      }
+    }
     if(w->app==APPS&&ly>=100){
       std::array<App,9>apps={TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER};
       int row=(ly-100)/72,col=lx/215;int idx=row*3+col;
       if(idx>=0&&idx<(int)apps.size()&&lx>=16&&lx<16+3*215&&((lx-16)%215)<195){launchApp(apps[(size_t)idx]);return;}
     }
     if(w->app==FILES){
-      if(ly>=68&&ly<100){fileDir="/";return;}
+      if(ly>=76&&ly<116){fileDir="/";return;}
       if(ly>=100){int idx=(ly-100)/30;auto entries=fs.list(fileDir);if(idx>=0&&idx<(int)entries.size()){
         auto n=entries[(size_t)idx];
         if(n==".")return;
@@ -254,25 +274,60 @@ private:
     }
     else if(w.app==TERM){TextOutA(dc,x,y,"$ ",2);TextOutA(dc,x+18,y,w.input.c_str(),(int)w.input.size());y+=24;for(auto&s:termLines)if(!s.empty()){TextOutA(dc,x,y,s.c_str(),(int)s.size());y+=21;}}
     else if(w.app==FILES){
-      TextOutA(dc,x,y,("ForgeFiles  "+fileDir).c_str(),(int)(12+fileDir.size()));y+=28;
-      TextOutA(dc,x,y,"Click a .fexe binary to launch its app",38);y+=28;
+      TextOutA(dc,x,y,("ForgeFiles  "+fileDir).c_str(),(int)(12+fileDir.size()));y+=26;
+      button(dc,x,y,100,"Up",false);y+=42;
       auto entries=fs.list(fileDir);
       for(size_t k=0;k<entries.size();k++){
         int by=y+(int)k*30;
         button(dc,x,by,430,entries[k],false);
         if(entries[k].size()>5&&entries[k].rfind(".fexe")==entries[k].size()-5)TextOutA(dc,x+446,by+10,"FEXE",4);
+        else if(fileDir=="/")TextOutA(dc,x+446,by+10,"folder",6);
       }
     }
     else if(w.app==SETTINGS){TextOutA(dc,x,y,"Appearance",10);y+=28;button(dc,x,y,300,dark?"Theme: Midnight":"Theme: Light",false);y+=38;button(dc,x,y,300,"Wallpaper: Aurora",wallpaper==0);y+=36;button(dc,x,y,300,"Wallpaper: Sunset",wallpaper==1);y+=36;button(dc,x,y,300,"Wallpaper: Plain",wallpaper==2);}
-    else if(w.app==CALC){TextOutA(dc,x,y,("Expression: "+w.input).c_str(),(int)w.input.size()+13);y+=38;HBRUSH q=CreateSolidBrush(dark?RGB(10,15,23):RGB(235,240,246));RECT rr{x,y,x+340,y+62};FillRect(dc,&rr,q);DeleteObject(q);SetTextColor(dc,dark?RGB(235,248,255):RGB(25,35,45));TextOutA(dc,x+12,y+20,w.text.c_str(),(int)w.text.size());}
+    else if(w.app==CALC){
+      TextOutA(dc,x,y,("Expression: "+w.input).c_str(),(int)w.input.size()+13);y+=34;
+      HBRUSH q=CreateSolidBrush(dark?RGB(10,15,23):RGB(235,240,246));RECT rr{x,y,x+340,y+58};FillRect(dc,&rr,q);DeleteObject(q);
+      SetTextColor(dc,dark?RGB(235,248,255):RGB(25,35,45));TextOutA(dc,x+12,y+18,w.text.c_str(),(int)w.text.size());y+=70;
+      const char* keys[20]={"7","8","9","/","4","5","6","*","1","2","3","-","0",".","C","+","=","<-","^"," "};
+      for(int k=0;k<20;k++){int col=k%4,row=k/4;int by=y+row*40;if(keys[k][0]==' ' )continue;button(dc,x+col*86,by,78,keys[k],false);}
+    }
     else if(w.app==EDIT){TextOutA(dc,x,y,"ForgeEdit — F2 saves",20);y+=28;TextOutA(dc,x,y,w.text.c_str(),(int)std::min<size_t>(w.text.size(),1400));}
     else if(w.app==PAINT){TextOutA(dc,x,y,"Draw with the mouse • Esc clears",31);for(size_t i=1;i<paintPts.size();i++){HPEN p=CreatePen(PS_SOLID,3,RGB(76,165,255));auto old=SelectObject(dc,p);MoveToEx(dc,w.r.left+paintPts[i-1].x,w.r.top+paintPts[i-1].y,nullptr);LineTo(dc,w.r.left+paintPts[i].x,w.r.top+paintPts[i].y);SelectObject(dc,old);DeleteObject(p);}}
     else if(w.app==SNAKE){HBRUSH q=CreateSolidBrush(RGB(8,16,25));RECT rr{x,y,x+600,y+360};FillRect(dc,&rr,q);DeleteObject(q);HBRUSH s=CreateSolidBrush(RGB(68,190,112));for(auto&p:snake){RECT z{x+p.x*20,y+p.y*20,x+p.x*20+18,y+p.y*20+18};FillRect(dc,&z,s);}DeleteObject(s);HBRUSH f=CreateSolidBrush(RGB(226,86,86));RECT fr{x+food.x*20,y+food.y*20,x+food.x*20+18,y+food.y*20+18};FillRect(dc,&fr,f);DeleteObject(f);SetTextColor(dc,RGB(218,232,245));TextOutA(dc,x,y+334,"Arrow keys • eat the red square • crash to restart",48);}
     else if(w.app==MONITOR){std::ostringstream s;s<<"Forge32 PC="<<cpu.pc<<"   RAM="<<(cpu.mem.size()/1024)<<" KiB   ForgeFS="<<fs.bytes()<<" bytes";auto z=s.str();TextOutA(dc,x,y,z.c_str(),(int)z.size());y+=26;TextOutA(dc,x,y,"Services: shell compositor launcher apps",38);y+=26;TextOutA(dc,x,y,("Status: "+status).c_str(),8+(int)status.size());}
     else if(w.app==BROWSER){button(dc,x,y,520,browserFocus?("URL: "+w.input):"Ctrl+L to focus address",browserFocus);y+=48;TextOutA(dc,x,y,w.text.c_str(),(int)std::min<size_t>(w.text.size(),1200));}
-    else if(w.app==FEXE){TextOutA(dc,x,y,w.text.c_str(),(int)w.text.size());}
+    else if(w.app==FEXE){
+      TextOutA(dc,x,y,"FEXE Runner / Binary Inspector",30);y+=26;
+      TextOutA(dc,x,y,w.text.c_str(),(int)std::min<size_t>(w.text.size(),700));y+=90;
+      TextOutA(dc,x,y,"Installed binaries:",19);y+=24;
+      int k=0;for(auto&n:fs.list("/System/Bin"))if(n.size()>5&&n.rfind(".fexe")==n.size()-5){button(dc,x,y+k*30,430,n,false);k++;}
+    }
   }
-  void command(Window&w){auto c=w.input;if(c=="help")status="help apps launch Calculator|Snake|Paint|Settings run /System/Bin/hello.fexe";else if(c=="pwd")status="/Documents";else if(c=="ls")status=join(fs.list("/Documents"));else if(c=="apps")status="Terminal Files Settings Calculator Paint Snake Monitor Edit Browser FEXE Runner";else if(c=="run /System/Bin/hello.fexe"){open(FEXE);}else if(c.rfind("launch ",0)==0){auto n=c.substr(7);for(App a:{TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE})if(title(a)==n){open(a);return;}status="app not found";}else if(c.rfind("echo ",0)==0)status=c.substr(5);else if(c=="mem")status=std::to_string(cpu.mem.size()/1024)+" KiB RAM";else if(c=="disk")status=std::to_string(fs.bytes())+" bytes ForgeFS";else if(c=="net")status="WinHTTP network device ready";else if(c=="date")status=now();else if(c=="clear"){for(auto&s:termLines)s.clear();status="";}else if(c=="shutdown")PostQuitMessage(0);else status="command not found";termLines.back()=status;}
+  std::string fetchUrl(std::string url,std::string&err){
+    if(url.find("://")==std::string::npos)url="https://"+url;
+    std::wstring wu(url.begin(),url.end());URL_COMPONENTS uc{};uc.dwStructSize=sizeof(uc);wchar_t host[256]{},path[2048]{};
+    uc.lpszHostName=host;uc.dwHostNameLength=(DWORD)_countof(host);uc.lpszUrlPath=path;uc.dwUrlPathLength=(DWORD)_countof(path);
+    if(!WinHttpCrackUrl(wu.c_str(),0,0,&uc)){err="invalid URL";return{};}
+    HINTERNET ses=WinHttpOpen(L"ForgeOS/1.0",WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0);
+    if(!ses){err="network session failed";return{};}
+    std::wstring h(host,uc.dwHostNameLength),p(path,uc.dwUrlPathLength?uc.dwUrlPathLength:0);
+    HINTERNET con=WinHttpConnect(ses,h.c_str(),uc.nPort,0);
+    if(!con){WinHttpCloseHandle(ses);err="connection failed";return{};}
+    DWORD flags=(uc.nScheme==INTERNET_SCHEME_HTTPS)?WINHTTP_FLAG_SECURE:0;
+    HINTERNET req=WinHttpOpenRequest(con,L"GET",p.empty()?L"/":p.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,flags);
+    if(!req||!WinHttpSendRequest(req,WINHTTP_NO_ADDITIONAL_HEADERS,0,WINHTTP_NO_REQUEST_DATA,0,0,0)||!WinHttpReceiveResponse(req,nullptr)){
+      if(req)WinHttpCloseHandle(req);WinHttpCloseHandle(con);WinHttpCloseHandle(ses);err="request failed";return{};
+    }
+    std::string out;DWORD avail=0;char buf[4096];
+    while(WinHttpQueryDataAvailable(req,&avail)&&avail){
+      DWORD got=0;if(!WinHttpReadData(req,buf,(DWORD)std::min<size_t>(sizeof(buf),avail),&got)||!got)break;
+      if(out.size()+got>16000){out.append(buf,16000-out.size());break;}out.append(buf,got);
+    }
+    WinHttpCloseHandle(req);WinHttpCloseHandle(con);WinHttpCloseHandle(ses);
+    if(out.empty())err="empty response";return out;
+  }
+  void command(Window&w){auto c=w.input;if(c=="help")status="help apps launch Calculator|Snake|Paint|Settings run /System/Bin/hello.fexe";else if(c=="pwd")status="/Documents";else if(c=="ls")status=join(fs.list("/Documents"));else if(c=="apps")status="Terminal Files Settings Calculator Paint Snake Monitor Edit Browser FEXE Runner";else if(c=="run /System/Bin/hello.fexe"){open(FEXE);}else if(c.rfind("launch ",0)==0){auto n=c.substr(7);for(App a:{TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE})if(title(a)==n){launchApp(a);return;}status="app not found";}else if(c.rfind("echo ",0)==0)status=c.substr(5);else if(c=="mem")status=std::to_string(cpu.mem.size()/1024)+" KiB RAM";else if(c=="disk")status=std::to_string(fs.bytes())+" bytes ForgeFS";else if(c=="net")status="WinHTTP network device ready";else if(c=="date")status=now();else if(c=="clear"){for(auto&s:termLines)s.clear();status="";}else if(c=="shutdown")PostQuitMessage(0);else status="command not found";termLines.back()=status;}
   static std::string join(const std::vector<std::string>&v){std::string s;for(auto&a:v){if(!s.empty())s+="  ";s+=a;}return s;}
   static std::string now(){SYSTEMTIME t;GetLocalTime(&t);char b[32];sprintf_s(b,"%04u-%02u-%02u %02u:%02u:%02u",t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);return b;}
   static std::string calc(const std::string&s){double a=0,b=0;char o=0;std::stringstream ss(s);if(!(ss>>a))return"error";if(!(ss>>o))return fmt(a);if(!(ss>>b))return"error";if(o=='+')a+=b;else if(o=='-')a-=b;else if(o=='*')a*=b;else if(o=='/'&&b!=0)a/=b;else if(o=='^')a=std::pow(a,b);else return"error";return fmt(a);}
