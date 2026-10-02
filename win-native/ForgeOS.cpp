@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include <windows.h>
+#include <shellapi.h>
 #include <winhttp.h>
 #include <array>
 #include <chrono>
