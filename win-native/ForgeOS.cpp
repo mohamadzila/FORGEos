@@ -119,6 +119,7 @@ public:
   }
   void mouseMove(int x,int y){if(drag){if(auto*w=find()){w->r.left=x-ox;w->r.top=y-oy;w->r.right=w->r.left+680;w->r.bottom=w->r.top+430;}}else{auto*w=find();if(w&&w->app==PAINT&&GetAsyncKeyState(VK_LBUTTON)<0)paintPts.push_back({x-w->r.left,y-w->r.top});}}
   void mouseUp(){drag=false;}
+  bool animating()const{for(auto&w:wins)if(w.id==active)return w.app==SNAKE;return false;}
   void draw(HDC dc,int W,int H){paintDesktop(dc,W,H);paintWindows(dc);}
 private:
   bool drag=false;int ox=0,oy=0;bool browserFocus=false;
@@ -177,7 +178,11 @@ static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
     if(back)DeleteDC(back);
     EndPaint(h,&p);return 0;
   }
-  if(m==WM_TIMER){g->cpu.step();InvalidateRect(h,nullptr,FALSE);return 0;}
+  if(m==WM_TIMER){
+    g->cpu.step();
+    if(g->animating()){g->tick();InvalidateRect(h,nullptr,FALSE);}
+    return 0;
+  }
   if(m==WM_LBUTTONDOWN){RECT r;GetClientRect(h,&r);g->mouseDown(LOWORD(l),HIWORD(l),r.right,r.bottom);SetCapture(h);InvalidateRect(h,nullptr,FALSE);return 0;}
   if(m==WM_MOUSEMOVE){g->mouseMove(LOWORD(l),HIWORD(l));InvalidateRect(h,nullptr,FALSE);return 0;}
   if(m==WM_LBUTTONUP){g->mouseUp();ReleaseCapture();return 0;}
@@ -192,6 +197,6 @@ int main(int argc,char**argv){
   if(rec){MessageBoxA(nullptr,"ForgeOS Recovery\n\nBoot normally\nSafe mode\nFilesystem check\nSnapshot restore\nDebug kernel","ForgeOS Recovery",MB_OK);return 0;}
   d.open(forge::WELCOME);d.open(forge::TERM);
   WNDCLASSA wc{};wc.hInstance=GetModuleHandleA(nullptr);wc.lpfnWndProc=proc;wc.lpszClassName="IronBoxForgeOS";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);RegisterClassA(&wc);
-  gw=CreateWindowExA(0,wc.lpszClassName,"ForgeOS — IronBox",WS_OVERLAPPEDWINDOW|WS_VISIBLE,100,80,1280,720,nullptr,nullptr,wc.hInstance,nullptr);if(!gw)return 3;SetTimer(gw,1,16,nullptr);
+  gw=CreateWindowExA(0,wc.lpszClassName,"ForgeOS — IronBox",WS_OVERLAPPEDWINDOW|WS_VISIBLE,100,80,1280,720,nullptr,nullptr,wc.hInstance,nullptr);if(!gw)return 3;SetTimer(gw,1,80,nullptr);
   MSG msg;while(GetMessageA(&msg,nullptr,0,0)){TranslateMessage(&msg);DispatchMessageA(&msg);}fs.save();return 0;
 }
