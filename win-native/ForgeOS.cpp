@@ -143,7 +143,7 @@ public:
   int windowAt(int x,int y)const{for(auto it=wins.rbegin();it!=wins.rend();++it)if(!it->minimized&&x>=it->r.left&&x<it->r.right&&y>=it->r.top&&y<it->r.bottom)return it->id;return -1;}
   bool taskbarHit(int x,int y,int W,int H,int& id)const{
     if(y<H-54||x<150||x>=W-86||wins.empty())return false;
-    int bw=std::max(92,std::min(168,(W-252)/(int)wins.size()));int i=(x-150)/bw;
+    int bw=std::max(82,std::min(156,(W-252)/(int)wins.size()));int i=(x-150)/bw;
     if(i<0||i>=(int)wins.size())return false;id=wins[(size_t)i].id;return true;
   }
   void startSnake(){snake={{12,8},{11,8},{10,8}};food={17,8};dir=0;}
@@ -159,9 +159,9 @@ public:
     if(launcher){if(v==VK_ESCAPE){launcher=false;return;}if(v==VK_BACK&&!search.empty())search.pop_back();else if(v>='A'&&v<='Z')search.push_back((char)(shift?v:(v-'A'+'a')));else if(v==VK_RETURN)choose();return;}
     Window*w=find();if(!w)return;
     if(w->app==SNAKE){if(v==VK_UP&&dir!=3)dir=1;else if(v==VK_RIGHT&&dir!=2)dir=0;else if(v==VK_DOWN&&dir!=1)dir=3;else if(v==VK_LEFT&&dir!=0)dir=2;}
-    else if(w->app==TERM){if(v==VK_RETURN){command(*w);w->input.clear();}else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();else if(v==VK_SPACE)w->input.push_back(' ');}
+    else if(w->app==TERM){if(v==VK_RETURN){command(*w);w->input.clear();}else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();}
     else if(w->app==CALC){if(v==VK_RETURN)w->text=calc(w->input);else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();else if(v>=32&&v<127)w->input.push_back((char)v);}
-    else if(w->app==EDIT){if(v==VK_F2){fs.put("/Documents/Welcome.fdoc",w->text);fs.save();status="saved";}else if(v==VK_BACK&&!w->text.empty())w->text.pop_back();else if(v==VK_SPACE)w->text.push_back(' ');}
+    else if(w->app==EDIT){if(v==VK_F2){fs.put("/Documents/Welcome.fdoc",w->text);fs.save();status="saved";}else if(v==VK_BACK&&!w->text.empty())w->text.pop_back();}
     else if(w->app==SETTINGS&&v==VK_RETURN){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}
   }
   void charInput(UINT ch){
@@ -189,8 +189,13 @@ public:
       if(w->maximized)return;
       drag=true;ox=x-w->r.left;oy=y-w->r.top;return;
     }
-    if(w->app==APPS&&ly>=108){int idx=(ly-108)/38;std::array<App,9>apps={TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER};if(idx>=0&&idx<(int)apps.size())launchBinary("/System/Bin/"+std::string(idx==0?"terminal":idx==1?"files":idx==2?"settings":idx==3?"calculator":idx==4?"paint":idx==5?"snake":idx==6?"monitor":idx==7?"edit":"browser")+".fexe");return;}
-    if(w->app==FILES&&ly>=102){int idx=(ly-102)/28;auto entries=fs.list(fileDir);if(idx>=0&&idx<(int)entries.size()){auto n=entries[(size_t)idx];if(n.size()>5&&n.rfind(".fexe")==n.size()-5)launchBinary(fileDir+"/"+n);return;}}
+    if(w->app==APPS&&ly>=100){
+      int idx=(ly-100)/72;std::array<App,9>apps={TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER};
+      int col=idx%3;int row=idx/3;if(idx>=0&&idx<(int)apps.size()){int bx=w->r.left+16+col*215;if(lx>=bx-w->r.left&&lx<bx-w->r.left+195){std::array<const char*,9>bins={"terminal","files","settings","calculator","paint","snake","monitor","edit","browser"};launchBinary("/System/Bin/"+std::string(bins[idx])+".fexe");return;}}
+    }
+    if(w->app==FILES&&ly>=100){
+      int idx=(ly-100)/30;auto entries=fs.list(fileDir);if(idx>=0&&idx<(int)entries.size()){auto n=entries[(size_t)idx];if(n.size()>5&&n.rfind(".fexe")==n.size()-5){launchBinary(fileDir+"/"+n);return;}}
+    }
     if(w->app==SETTINGS){if(ly>=78&&ly<114){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}else if(ly>=114&&ly<152){wallpaper=0;fs.put("/Config/wallpaper","aurora");fs.save();}else if(ly>=152&&ly<190){wallpaper=1;fs.put("/Config/wallpaper","sunset");fs.save();}else if(ly>=190&&ly<228){wallpaper=2;fs.put("/Config/wallpaper","plain");fs.save();}}
     if(w->app==PAINT&&x>w->r.left+12&&y>w->r.top+42)paintPts.push_back({x-w->r.left,y-w->r.top});
   }
@@ -207,27 +212,46 @@ private:
     SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(225,238,250));TextOutA(dc,24,16,"FORGEOS",7);TextOutA(dc,112,16,"Desktop",7);
     HBRUSH tb=CreateSolidBrush(dark?RGB(12,18,28):RGB(228,234,241));RECT t{0,H-54,W,H};FillRect(dc,&t,tb);DeleteObject(tb);
     button(dc,10,H-44,128,"START",false);
-    int count=(int)wins.size();if(count>0){int bw=std::max(92,std::min(168,(W-252)/count));int x=150;for(auto&w:wins){std::string tab=w.title;if(w.minimized)tab="[ "+tab+" ]";button(dc,x,H-44,bw-6,tab,w.id==active&&!w.minimized);x+=bw;}}
+    int count=(int)wins.size();if(count>0){int bw=std::max(82,std::min(156,(W-252)/count));int x=150;for(auto&w:wins){std::string tab=w.title;if(w.minimized)tab="[ "+tab+" ]";button(dc,x,H-44,bw-6,tab,w.id==active&&!w.minimized);x+=bw;}}
     SYSTEMTIME st;GetLocalTime(&st);char tm[16];sprintf_s(tm,"%02u:%02u",st.wHour,st.wMinute);SetTextColor(dc,dark?RGB(210,225,240):RGB(45,55,65));TextOutA(dc,W-66,H-31,tm,5);
   }
   void paintWindows(HDC dc){for(auto&w:wins)if(!w.minimized)paintWindow(dc,w);if(launcher)paintLauncher(dc);}
   void icon(HDC dc,int x,int y,const std::string&g,const std::string&l){HBRUSH b=CreateSolidBrush(RGB(45,100,170));RECT q{x,y,x+48,y+48};FillRect(dc,&q,b);DeleteObject(b);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(245,250,255));TextOutA(dc,x+7,y+17,g.c_str(),(int)g.size());TextOutA(dc,x,y+53,l.c_str(),(int)l.size());}
   void button(HDC dc,int x,int y,int w,const std::string&t,bool on){HBRUSH b=CreateSolidBrush(on?RGB(48,102,177):(dark?RGB(28,42,59):RGB(238,242,247)));RECT q{x,y,x+w,y+34};FillRect(dc,&q,b);DeleteObject(b);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(238,246,255));TextOutA(dc,x+9,y+10,t.c_str(),(int)t.size());}
-  void paintLauncher(HDC dc){int W=desktopW;HBRUSH b=CreateSolidBrush(dark?RGB(18,27,40):RGB(250,252,255));RECT q{W/2-245,70,W/2+245,650};FillRect(dc,&q,b);DeleteObject(b);SetTextColor(dc,dark?RGB(240,248,255):RGB(25,35,45));TextOutA(dc,W/2-215,88,"FORGE LAUNCHER",15);TextOutA(dc,W/2-215,116,("Search: "+search).c_str(),8+(int)search.size());int k=0;for(App a:{WELCOME,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE}){if(!search.empty()&&title(a).find(search)==std::string::npos)continue;button(dc,W/2-215,140+k*39,430,title(a),false);k++;}}
+  void paintLauncher(HDC dc){int W=desktopW;HBRUSH b=CreateSolidBrush(dark?RGB(18,27,40):RGB(250,252,255));RECT q{W/2-245,70,W/2+245,650};FillRect(dc,&q,b);DeleteObject(b);SetTextColor(dc,dark?RGB(240,248,255):RGB(25,35,45));TextOutA(dc,W/2-215,88,"FORGE LAUNCHER",15);TextOutA(dc,W/2-215,116,("Search: "+search).c_str(),8+(int)search.size());int k=0;for(App a:{WELCOME,APPS,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE}){if(!search.empty()&&title(a).find(search)==std::string::npos)continue;button(dc,W/2-215,140+k*39,430,title(a),false);k++;}}
   void paintWindow(HDC dc,Window&w){
     HBRUSH sh=CreateSolidBrush(RGB(0,0,0));RECT sr{w.r.left+5,w.r.top+5,w.r.right+5,w.r.bottom+5};FillRect(dc,&sr,sh);DeleteObject(sh);
     HBRUSH bg=CreateSolidBrush(dark?RGB(24,33,47):RGB(250,251,253));FillRect(dc,&w.r,bg);DeleteObject(bg);HBRUSH bar=CreateSolidBrush(RGB(42,88,145));RECT tr{w.r.left,w.r.top,w.r.right,w.r.top+32};FillRect(dc,&tr,bar);DeleteObject(bar);
     SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(245,250,255));TextOutA(dc,w.r.left+12,w.r.top+8,w.title.c_str(),(int)w.title.size());int ww=w.r.right-w.r.left;button(dc,w.r.right-78,w.r.top+3,24,"_",false);button(dc,w.r.right-52,w.r.top+3,24,"[]",false);button(dc,w.r.right-26,w.r.top+3,24,"X",false);SetTextColor(dc,dark?RGB(205,218,232):RGB(50,60,70));int x=w.r.left+16,y=w.r.top+50;
     if(w.app==WELCOME){TextOutA(dc,x,y,"Welcome to ForgeOS",18);y+=26;TextOutA(dc,x,y,"A desktop, not a void: wallpaper, icons, taskbar and launcher.",58);y+=26;TextOutA(dc,x,y,"Preinstalled: Terminal Files Settings Calculator Paint Snake Monitor Edit Browser FEXE Runner",78);}
+    else if(w.app==APPS){
+      TextOutA(dc,x,y,"Forge Apps",10);y+=25;
+      TextOutA(dc,x,y,"Installed applications • each launches its signed FEXE binary",58);y+=32;
+      std::array<App,9>apps={TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER};
+      for(int k=0;k<(int)apps.size();k++){
+        int col=k%3,row=k/3;int bx=x+col*215,by=y+row*72;
+        button(dc,bx,by,195,title(apps[(size_t)k]),false);
+        TextOutA(dc,bx+12,by+10,title(apps[(size_t)k]).c_str(),(int)title(apps[(size_t)k]).size());
+      }
+    }
     else if(w.app==TERM){TextOutA(dc,x,y,"$ ",2);TextOutA(dc,x+18,y,w.input.c_str(),(int)w.input.size());y+=24;for(auto&s:termLines)if(!s.empty()){TextOutA(dc,x,y,s.c_str(),(int)s.size());y+=21;}}
-    else if(w.app==FILES){TextOutA(dc,x,y,"ForgeFS volume",15);y+=25;TextOutA(dc,x,y,"/Documents",10);y+=22;TextOutA(dc,x,y,"Welcome.fdoc",12);y+=26;TextOutA(dc,x,y,"/System/Bin",11);y+=22;for(auto&s:fs.list("/System/Bin")){TextOutA(dc,x,y,s.c_str(),(int)s.size());y+=20;}}
+    else if(w.app==FILES){
+      TextOutA(dc,x,y,("ForgeFiles  "+fileDir).c_str(),(int)(12+fileDir.size()));y+=28;
+      TextOutA(dc,x,y,"Click a .fexe binary to launch its app",38);y+=28;
+      auto entries=fs.list(fileDir);
+      for(size_t k=0;k<entries.size();k++){
+        int by=y+(int)k*30;
+        button(dc,x,by,430,entries[k],false);
+        if(entries[k].size()>5&&entries[k].rfind(".fexe")==entries[k].size()-5)TextOutA(dc,x+446,by+10,"FEXE",4);
+      }
+    }
     else if(w.app==SETTINGS){TextOutA(dc,x,y,"Appearance",10);y+=28;button(dc,x,y,300,dark?"Theme: Midnight":"Theme: Light",false);y+=38;button(dc,x,y,300,"Wallpaper: Aurora",wallpaper==0);y+=36;button(dc,x,y,300,"Wallpaper: Sunset",wallpaper==1);y+=36;button(dc,x,y,300,"Wallpaper: Plain",wallpaper==2);}
     else if(w.app==CALC){TextOutA(dc,x,y,("Expression: "+w.input).c_str(),(int)w.input.size()+13);y+=38;HBRUSH q=CreateSolidBrush(dark?RGB(10,15,23):RGB(235,240,246));RECT rr{x,y,x+340,y+62};FillRect(dc,&rr,q);DeleteObject(q);SetTextColor(dc,dark?RGB(235,248,255):RGB(25,35,45));TextOutA(dc,x+12,y+20,w.text.c_str(),(int)w.text.size());}
     else if(w.app==EDIT){TextOutA(dc,x,y,"ForgeEdit — F2 saves",20);y+=28;TextOutA(dc,x,y,w.text.c_str(),(int)std::min<size_t>(w.text.size(),1400));}
     else if(w.app==PAINT){TextOutA(dc,x,y,"Draw with the mouse • Esc clears",31);for(size_t i=1;i<paintPts.size();i++){HPEN p=CreatePen(PS_SOLID,3,RGB(76,165,255));auto old=SelectObject(dc,p);MoveToEx(dc,w.r.left+paintPts[i-1].x,w.r.top+paintPts[i-1].y,nullptr);LineTo(dc,w.r.left+paintPts[i].x,w.r.top+paintPts[i].y);SelectObject(dc,old);DeleteObject(p);}}
     else if(w.app==SNAKE){HBRUSH q=CreateSolidBrush(RGB(8,16,25));RECT rr{x,y,x+600,y+360};FillRect(dc,&rr,q);DeleteObject(q);HBRUSH s=CreateSolidBrush(RGB(68,190,112));for(auto&p:snake){RECT z{x+p.x*20,y+p.y*20,x+p.x*20+18,y+p.y*20+18};FillRect(dc,&z,s);}DeleteObject(s);HBRUSH f=CreateSolidBrush(RGB(226,86,86));RECT fr{x+food.x*20,y+food.y*20,x+food.x*20+18,y+food.y*20+18};FillRect(dc,&fr,f);DeleteObject(f);SetTextColor(dc,RGB(218,232,245));TextOutA(dc,x,y+334,"Arrow keys • eat the red square • crash to restart",48);}
     else if(w.app==MONITOR){std::ostringstream s;s<<"Forge32 PC="<<cpu.pc<<"   RAM="<<(cpu.mem.size()/1024)<<" KiB   ForgeFS="<<fs.bytes()<<" bytes";auto z=s.str();TextOutA(dc,x,y,z.c_str(),(int)z.size());y+=26;TextOutA(dc,x,y,"Services: shell compositor launcher apps",38);y+=26;TextOutA(dc,x,y,("Status: "+status).c_str(),8+(int)status.size());}
-    else if(w.app==BROWSER){TextOutA(dc,x,y,(browserFocus?"URL: "+w.input:"Ctrl+L to enter a URL").c_str(),(int)(browserFocus?6+w.input.size():21));y+=28;TextOutA(dc,x,y,w.text.c_str(),(int)std::min<size_t>(w.text.size(),1200));}
+    else if(w.app==BROWSER){button(dc,x,y,520,browserFocus?("URL: "+w.input):"Ctrl+L to focus address",browserFocus);y+=48;TextOutA(dc,x,y,w.text.c_str(),(int)std::min<size_t>(w.text.size(),1200));}
     else if(w.app==FEXE){TextOutA(dc,x,y,w.text.c_str(),(int)w.text.size());}
   }
   void command(Window&w){auto c=w.input;if(c=="help")status="help apps launch Calculator|Snake|Paint|Settings run /System/Bin/hello.fexe";else if(c=="pwd")status="/Documents";else if(c=="ls")status=join(fs.list("/Documents"));else if(c=="apps")status="Terminal Files Settings Calculator Paint Snake Monitor Edit Browser FEXE Runner";else if(c=="run /System/Bin/hello.fexe"){open(FEXE);}else if(c.rfind("launch ",0)==0){auto n=c.substr(7);for(App a:{TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE})if(title(a)==n){open(a);return;}status="app not found";}else if(c.rfind("echo ",0)==0)status=c.substr(5);else if(c=="mem")status=std::to_string(cpu.mem.size()/1024)+" KiB RAM";else if(c=="disk")status=std::to_string(fs.bytes())+" bytes ForgeFS";else if(c=="net")status="WinHTTP network device ready";else if(c=="date")status=now();else if(c=="clear"){for(auto&s:termLines)s.clear();status="";}else if(c=="shutdown")PostQuitMessage(0);else status="command not found";termLines.back()=status;}
