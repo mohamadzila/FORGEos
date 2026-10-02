@@ -161,7 +161,22 @@ private:
 
 static forge::Desktop* g=nullptr; static HWND gw=nullptr;
 static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
-  if(m==WM_PAINT){PAINTSTRUCT p;HDC dc=BeginPaint(h,&p);RECT r;GetClientRect(h,&r);g->draw(dc,r.right,r.bottom);EndPaint(h,&p);return 0;}
+  if(m==WM_ERASEBKGND)return 1;
+  if(m==WM_PAINT){
+    PAINTSTRUCT p;HDC screen=BeginPaint(h,&p);RECT r;GetClientRect(h,&r);
+    int W=r.right,H=r.bottom;
+    HDC back=CreateCompatibleDC(screen);
+    HBITMAP bmp=CreateCompatibleBitmap(screen,W,H);
+    HBITMAP oldBmp=back?(HBITMAP)SelectObject(back,bmp):nullptr;
+    if(back&&bmp&&g){
+      g->draw(back,W,H);
+      BitBlt(screen,0,0,W,H,back,0,0,W,H,SRCCOPY);
+    }
+    if(back&&oldBmp)SelectObject(back,oldBmp);
+    if(bmp)DeleteObject(bmp);
+    if(back)DeleteDC(back);
+    EndPaint(h,&p);return 0;
+  }
   if(m==WM_TIMER){g->cpu.step();InvalidateRect(h,nullptr,FALSE);return 0;}
   if(m==WM_LBUTTONDOWN){RECT r;GetClientRect(h,&r);g->mouseDown(LOWORD(l),HIWORD(l),r.right,r.bottom);SetCapture(h);InvalidateRect(h,nullptr,FALSE);return 0;}
   if(m==WM_MOUSEMOVE){g->mouseMove(LOWORD(l),HIWORD(l));InvalidateRect(h,nullptr,FALSE);return 0;}
