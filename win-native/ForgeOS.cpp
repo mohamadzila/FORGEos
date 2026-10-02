@@ -20,7 +20,7 @@
 #pragma comment(lib,"ws2_32.lib")
 
 namespace forge {
-using u32=std::uint32_t; using u8=std::uint8_t;
+using u32=std::uint32_t; using u8=std::uint8_t; using u64=std::uint64_t;
 static u32 crc32(const std::vector<u8>& d){u32 c=0xffffffffu;for(u8 b:d){c^=b;for(int i=0;i<8;i++)c=(c>>1)^((c&1)?0xedb88320u:0);}return c^0xffffffffu;}
 
 struct CPU {
