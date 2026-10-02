@@ -111,7 +111,7 @@ public:
     for(auto it=wins.rbegin();it!=wins.rend();++it){if(x>=it->r.left&&x<it->r.right&&y>=it->r.top&&y<it->r.top+32){active=it->id;drag=true;ox=x-it->r.left;oy=y-it->r.top;return;}}
     Window*w=find();if(!w)return;
     int ly=y-w->r.top;
-    if(w->app==SETTINGS){if(ly>=92&&ly<128){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}else if(ly>=130&&ly<166){wallpaper=0;fs.put("/Config/wallpaper","aurora");fs.save();}else if(ly>=166&&ly<202){wallpaper=1;fs.put("/Config/wallpaper","sunset");fs.save();}else if(ly>=202&&ly<238){wallpaper=2;fs.put("/Config/wallpaper","plain");fs.save();}}
+    if(w->app==SETTINGS){if(ly>=78&&ly<114){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}else if(ly>=114&&ly<152){wallpaper=0;fs.put("/Config/wallpaper","aurora");fs.save();}else if(ly>=152&&ly<190){wallpaper=1;fs.put("/Config/wallpaper","sunset");fs.save();}else if(ly>=190&&ly<228){wallpaper=2;fs.put("/Config/wallpaper","plain");fs.save();}}
     if(w->app==PAINT&&x>w->r.left+12&&y>w->r.top+42){paintPts.push_back({x-w->r.left,y-w->r.top});}
   }
   void mouseMove(int x,int y){if(drag){if(auto*w=find()){w->r.left=x-ox;w->r.top=y-oy;w->r.right=w->r.left+680;w->r.bottom=w->r.top+430;}}else{auto*w=find();if(w&&w->app==PAINT&&GetAsyncKeyState(VK_LBUTTON)<0)paintPts.push_back({x-w->r.left,y-w->r.top});}}
