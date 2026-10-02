@@ -2,8 +2,6 @@ name: ForgeOS Windows Release
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 permissions:
   contents: read
@@ -12,45 +10,39 @@ jobs:
   windows:
     runs-on: windows-2022
     steps:
-      - name: Checkout release staging
+      - name: Checkout
         uses: actions/checkout@v4
-
+      - name: Reassemble source archive
+        shell: pwsh
+        run: |
+          $parts = 1..5 | ForEach-Object { Get-Content -Raw "ForgeOS-source.zip.b64.$_" }
+          [IO.File]::WriteAllBytes("ForgeOS-source.zip",[Convert]::FromBase64String(($parts -join "")))
       - name: Extract ForgeOS source
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force source -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force source | Out-Null
-          Expand-Archive -Path ForgeOS-source-clean.zip -DestinationPath source -Force
+          Expand-Archive -Path ForgeOS-source.zip -DestinationPath source -Force
           if (-not (Test-Path source/CMakeLists.txt)) { throw "Source archive did not unpack to a CMake project" }
-
       - name: Configure
         shell: pwsh
-        run: |
-          cmake -S source -B source/build -G "Visual Studio 17 2022" -A x64 -DFORGEOS_ENABLE_OPENSSL=OFF
-
+        run: cmake -S source -B source/build -G "Visual Studio 17 2022" -A x64 -DFORGEOS_ENABLE_OPENSSL=OFF
       - name: Build
         shell: pwsh
-        run: |
-          cmake --build source/build --config Release --parallel
-
+        run: cmake --build source/build --config Release --parallel
       - name: Test
         shell: pwsh
-        run: |
-          ctest --test-dir source/build -C Release --output-on-failure
-
+        run: ctest --test-dir source/build -C Release --output-on-failure
       - name: Verify native PE binaries
         shell: pwsh
         run: |
-          $bins = @("ironbox.exe","forgeasm.exe","forgedump.exe","forge_tests.exe")
-          foreach ($b in $bins) {
-            $p = Join-Path "source/build/Release" $b
-            if (-not (Test-Path $p)) { throw "Missing $b" }
-            $bytes = [System.IO.File]::ReadAllBytes($p)
-            if ($bytes.Length -lt 2 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
-              throw "$b is not a PE/MZ executable"
-            }
+          $bins=@("ironbox.exe","forgeasm.exe","forgedump.exe","forge_tests.exe")
+          foreach($b in $bins){
+            $p=Join-Path "source/build/Release" $b
+            if(-not(Test-Path $p)){throw "Missing $b"}
+            $bytes=[IO.File]::ReadAllBytes($p)
+            if($bytes.Length -lt 2 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A){throw "$b is not a PE executable"}
           }
-
       - name: Package Windows release
         shell: pwsh
         run: |
@@ -61,15 +53,13 @@ jobs:
           Copy-Item source/build/Release/forgedump.exe package/bin/
           Copy-Item source/disk/* package/disk/
           Copy-Item source/README.md,source/LICENSE,source/ARCHITECTURE.md,source/CPU.md,source/SYSCALLS.md,source/FILESYSTEM.md,source/NETWORKING.md,source/GUI.md,source/BROWSER.md,source/DEVELOPMENT.md,source/TESTING.md package/docs/
-          Copy-Item source/examples/hello.fasm,source/examples/hello.forge package/
           @'
           @echo off
           set "ROOT=%~dp0"
           "%ROOT%bin\ironbox.exe" --disk "%ROOT%disk\forgeos.forgefs" %*
           '@ | Set-Content package/RUN_FORGEOS.bat -Encoding ASCII
           Compress-Archive -Path package/* -DestinationPath ForgeOS-windows-x86_64.zip -Force
-
-      - name: Upload Windows release
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: ForgeOS-windows-x86_64
