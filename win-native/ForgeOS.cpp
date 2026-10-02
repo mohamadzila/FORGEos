@@ -95,18 +95,26 @@ public:
   explicit Desktop(FS&f):fs(f){}
   void boot(){dark=fs.read("/Config/theme")!="light";auto w=fs.read("/Config/wallpaper");wallpaper=w=="sunset"?1:w=="plain"?2:0;open(WELCOME);open(TERM);}
   static std::string title(App a){switch(a){case APPS:return"Forge Apps";case TERM:return"ForgeTerminal";case FILES:return"ForgeFiles";case BROWSER:return"ForgeBrowser";case CALC:return"Calculator";case SETTINGS:return"Settings";case MONITOR:return"System Monitor";case EDIT:return"ForgeEdit";case PAINT:return"ForgePaint";case SNAKE:return"Snake";case FEXE:return"FEXE Runner";default:return"Welcome";}}
-  static App appFromTitle(const std::string&s){for(App a:{TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE})if(title(a)==s)return a;return WELCOME;}
+  static App appFromTitle(const std::string&s){for(App a:{WELCOME,APPS,TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE})if(title(a)==s)return a;return WELCOME;}
+  static const char* binaryName(App a){
+    switch(a){case APPS:return"apps";case TERM:return"terminal";case FILES:return"files";case BROWSER:return"browser";case CALC:return"calculator";case SETTINGS:return"settings";case MONITOR:return"monitor";case EDIT:return"edit";case PAINT:return"paint";case SNAKE:return"snake";default:return nullptr;}
+  }
   App appForBinary(const std::string&path){
     FExeImage im;std::string e;if(!load_fexe(fs.read(path),im,e))return FEXE;
     switch(im.app_id){case 201:return APPS;case 202:return SNAKE;case 203:return CALC;case 204:return PAINT;case 205:return SETTINGS;case 206:return FILES;case 207:return TERM;case 208:return MONITOR;case 209:return EDIT;case 210:return BROWSER;default:return FEXE;}
   }
   void launchBinary(const std::string&path){
     FExeImage im;std::string e;u32 result=0;
-    if(!load_fexe(fs.read(path),im,e)){toast="Cannot load binary";toastUntil=frameTicks+45;return;}
+    if(!load_fexe(fs.read(path),im,e)){toast="Cannot load "+path;toastUntil=frameTicks+45;return;}
     if(!run_fexe(im,result)){toast="Binary execution failed";toastUntil=frameTicks+45;return;}
     App a=appForBinary(path);
     if(a==FEXE){toast="Unknown Forge binary";toastUntil=frameTicks+45;return;}
-    open(a);toast="Loaded "+path;toastUntil=frameTicks+35;
+    open(a);toast="Loaded "+title(a);toastUntil=frameTicks+35;
+  }
+  void launchApp(App a){
+    if(a==WELCOME||a==FEXE){open(a);return;}
+    const char* n=binaryName(a);if(!n){toast="No executable mapped";toastUntil=frameTicks+45;return;}
+    launchBinary("/System/Bin/"+std::string(n)+".fexe");
   }
   void open(App a){
     for(auto&w:wins)if(w.app==a){w.minimized=false;bringToFront(w.id);return;}
@@ -177,8 +185,8 @@ public:
     if(y>H-55&&x<145){launcher=!launcher;search.clear();return;}
     int taskId=-1;
     if(taskbarHit(x,y,W,H,taskId)){for(auto&w:wins)if(w.id==taskId){if(w.id==active&&!w.minimized){w.minimized=true;activateTopVisible();}else{w.minimized=false;bringToFront(w.id);}return;}}
-    if(launcher){for(App a:{WELCOME,APPS,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE}){int k=(int)a;RECT b{W/2-225,140+k*36,W/2+225,170+k*36};if(PtInRect(&b,POINT{x,y})){open(a);launcher=false;return;}}return;}
-    if(x<130){if(y>=70&&y<140){open(FILES);return;}if(y>=150&&y<220){open(EDIT);return;}if(y>=230&&y<300){open(APPS);return;}if(y>=310&&y<380){open(SETTINGS);return;}if(y>=390&&y<465){open(SNAKE);return;}}
+    if(launcher){std::array<App,12>apps={WELCOME,APPS,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE};int k=0;for(App a:apps){RECT b{W/2-225,140+k*39,W/2+225,174+k*39};if(PtInRect(&b,POINT{x,y})){launchApp(a);launcher=false;return;}k++;}return;}
+    if(x<130){if(y>=70&&y<140){launchApp(FILES);return;}if(y>=150&&y<220){launchApp(EDIT);return;}if(y>=230&&y<300){launchApp(APPS);return;}if(y>=310&&y<380){launchApp(SETTINGS);return;}if(y>=390&&y<465){launchApp(SNAKE);return;}}
     int hit=windowAt(x,y);if(hit==-1)return;
     bringToFront(hit);Window*w=find();if(!w)return;
     int ly=y-w->r.top,lx=x-w->r.left,ww=w->r.right-w->r.left;
@@ -191,11 +199,21 @@ public:
       drag=true;ox=x-w->r.left;oy=y-w->r.top;return;
     }
     if(w->app==APPS&&ly>=100){
-      int idx=(ly-100)/72;std::array<App,9>apps={TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER};
-      int col=idx%3;int row=idx/3;if(idx>=0&&idx<(int)apps.size()){int bx=w->r.left+16+col*215;if(lx>=bx-w->r.left&&lx<bx-w->r.left+195){std::array<const char*,9>bins={"terminal","files","settings","calculator","paint","snake","monitor","edit","browser"};launchBinary("/System/Bin/"+std::string(bins[idx])+".fexe");return;}}
+      std::array<App,9>apps={TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER};
+      int row=(ly-100)/72,col=lx/215;int idx=row*3+col;
+      if(idx>=0&&idx<(int)apps.size()&&lx>=16&&lx<16+3*215&&((lx-16)%215)<195){launchApp(apps[(size_t)idx]);return;}
     }
-    if(w->app==FILES&&ly>=100){
-      int idx=(ly-100)/30;auto entries=fs.list(fileDir);if(idx>=0&&idx<(int)entries.size()){auto n=entries[(size_t)idx];if(n.size()>5&&n.rfind(".fexe")==n.size()-5){launchBinary(fileDir+"/"+n);return;}}
+    if(w->app==FILES){
+      if(ly>=68&&ly<100){fileDir="/";return;}
+      if(ly>=100){int idx=(ly-100)/30;auto entries=fs.list(fileDir);if(idx>=0&&idx<(int)entries.size()){
+        auto n=entries[(size_t)idx];
+        if(n==".")return;
+        if(n.size()>5&&n.rfind(".fexe")==n.size()-5){launchBinary(fileDir+"/"+n);return;}
+        if(n=="Welcome.fdoc"){launchApp(EDIT);return;}
+        if(n=="Documents"){fileDir="/Documents";return;}
+        if(n=="System"){fileDir="/System";return;}
+        if(n=="Bin"&&fileDir=="/System"){fileDir="/System/Bin";return;}
+      }}
     }
     if(w->app==SETTINGS){if(ly>=78&&ly<114){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}else if(ly>=114&&ly<152){wallpaper=0;fs.put("/Config/wallpaper","aurora");fs.save();}else if(ly>=152&&ly<190){wallpaper=1;fs.put("/Config/wallpaper","sunset");fs.save();}else if(ly>=190&&ly<228){wallpaper=2;fs.put("/Config/wallpaper","plain");fs.save();}}
     if(w->app==PAINT&&x>w->r.left+12&&y>w->r.top+42)paintPts.push_back({x-w->r.left,y-w->r.top});
