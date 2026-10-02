@@ -15,6 +15,7 @@
 #include <random>
 #include <iomanip>
 #include <algorithm>
+#include <unordered_map>
 #pragma comment(lib,"user32.lib")
 #pragma comment(lib,"gdi32.lib")
 #pragma comment(lib,"winhttp.lib")
@@ -66,6 +67,7 @@ struct FS {
     put("/System/Bin/monitor.fexe",fexe(208,"MONITOR"));
     put("/System/Bin/edit.fexe",fexe(209,"EDIT"));
     put("/System/Bin/browser.fexe",fexe(210,"BROWSER"));
+    put("/System/Bin/apps.fexe",fexe(201,"APPS"));
     return save();
   }
 };
@@ -84,16 +86,28 @@ static bool run_fexe(const FExeImage& im,u32& result){
   if(im.code.size()<7)return false;u8 op=(u8)im.code[0];if(op!=1)return false;u8 reg=(u8)im.code[1];if(reg>7)return false;u32 v=(u32)(u8)im.code[2]|((u32)(u8)im.code[3]<<8)|((u32)(u8)im.code[4]<<16)|((u32)(u8)im.code[5]<<24);if((u8)im.code[6]!=0)return false;result=v;return true;
 }
 
-enum App{WELCOME,TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE};
+enum App{WELCOME,APPS,TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE};
 struct Window{App app;RECT r;std::string title,text,input;bool minimized=false;bool maximized=false;int id;RECT restoreR{};bool hasRestore=false;};
 
 class Desktop {
 public:
-  FS&fs;CPU cpu;std::vector<Window>wins;int active=-1,next=1;bool launcher=false,dark=true;int wallpaper=0;std::string search;u64 frameTicks=0;int desktopW=1280,desktopH=720;std::vector<POINT>snake;POINT food{18,8};int dir=0;std::mt19937 rng{42};std::vector<POINT>paintPts;std::string status;
+  FS&fs;CPU cpu;std::vector<Window>wins;int active=-1,next=1;bool launcher=false,dark=true;int wallpaper=0;std::string search;u64 frameTicks=0;int desktopW=1280,desktopH=720;std::vector<POINT>snake;std::string fileDir="/System/Bin";std::string toast;u64 toastUntil=0;POINT food{18,8};int dir=0;std::mt19937 rng{42};std::vector<POINT>paintPts;std::string status;
   explicit Desktop(FS&f):fs(f){}
   void boot(){dark=fs.read("/Config/theme")!="light";auto w=fs.read("/Config/wallpaper");wallpaper=w=="sunset"?1:w=="plain"?2:0;open(WELCOME);open(TERM);}
-  static std::string title(App a){switch(a){case TERM:return"ForgeTerminal";case FILES:return"ForgeFiles";case BROWSER:return"ForgeBrowser";case CALC:return"Calculator";case SETTINGS:return"Settings";case MONITOR:return"System Monitor";case EDIT:return"ForgeEdit";case PAINT:return"ForgePaint";case SNAKE:return"Snake";case FEXE:return"FEXE Runner";default:return"Welcome";}}
+  static std::string title(App a){switch(a){case APPS:return"Forge Apps";case TERM:return"ForgeTerminal";case FILES:return"ForgeFiles";case BROWSER:return"ForgeBrowser";case CALC:return"Calculator";case SETTINGS:return"Settings";case MONITOR:return"System Monitor";case EDIT:return"ForgeEdit";case PAINT:return"ForgePaint";case SNAKE:return"Snake";case FEXE:return"FEXE Runner";default:return"Welcome";}}
   static App appFromTitle(const std::string&s){for(App a:{TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE})if(title(a)==s)return a;return WELCOME;}
+  App appForBinary(const std::string&path){
+    FExeImage im;std::string e;if(!load_fexe(fs.read(path),im,e))return FEXE;
+    switch(im.app_id){case 201:return APPS;case 202:return SNAKE;case 203:return CALC;case 204:return PAINT;case 205:return SETTINGS;case 206:return FILES;case 207:return TERM;case 208:return MONITOR;case 209:return EDIT;case 210:return BROWSER;default:return FEXE;}
+  }
+  void launchBinary(const std::string&path){
+    FExeImage im;std::string e;u32 result=0;
+    if(!load_fexe(fs.read(path),im,e)){toast="Cannot load binary";toastUntil=frameTicks+45;open(FEXE);return;}
+    if(!run_fexe(im,result)){toast="Binary execution failed";toastUntil=frameTicks+45;open(FEXE);return;}
+    App a=appForBinary(path);
+    if(a==FEXE){toast="Unknown Forge binary";toastUntil=frameTicks+45;open(FEXE);return;}
+    open(a);toast="Loaded "+path;toastUntil=frameTicks+35;
+  }
   void open(App a){
     for(auto&w:wins)if(w.app==a){w.minimized=false;bringToFront(w.id);return;}
     Window w{a,{120+35*(next%4),90+25*(next%4),800+35*(next%4),540+25*(next%4)},title(a),"","",false,false,next++};
@@ -101,6 +115,7 @@ public:
     if(a==EDIT)w.text=fs.read("/Documents/Welcome.fdoc");
     if(a==FEXE){FExeImage im;std::string e;if(load_fexe(fs.read("/System/Bin/hello.fexe"),im,e)){u32 v=0;run_fexe(im,v);w.text="Forge executable loader\n\nFile: /System/Bin/hello.fexe\nMagic: FEXE\nArchitecture: Forge32\nChecksum: valid\nVM result: "+std::to_string(v);}else w.text="FEXE loader error: "+e;}
     if(a==SNAKE)startSnake();
+    if(a==APPS)fileDir="/System/Bin";
     wins.push_back(std::move(w));active=wins.back().id;
   }
   void bringToFront(int id){
@@ -122,73 +137,69 @@ public:
     if(active==id)activateTopVisible();
   }
   void toggleMaximize(Window&w){
-    if(w.maximized){
-      if(w.hasRestore)w.r=w.restoreR;
-      w.maximized=false;
-    }else{
-      w.restoreR=w.r;w.hasRestore=true;
-      w.r={8,8,std::max(16,desktopW-8),std::max(80,desktopH-62)};
-      w.maximized=true;
-    }
+    if(w.maximized){if(w.hasRestore)w.r=w.restoreR;w.maximized=false;}
+    else{w.restoreR=w.r;w.hasRestore=true;w.r={8,8,std::max(16,desktopW-8),std::max(80,desktopH-62)};w.maximized=true;}
   }
-  int windowAt(int x,int y)const{
-    for(auto it=wins.rbegin();it!=wins.rend();++it)
-      if(!it->minimized&&x>=it->r.left&&x<it->r.right&&y>=it->r.top&&y<it->r.bottom)return it->id;
-    return -1;
-  }
+  int windowAt(int x,int y)const{for(auto it=wins.rbegin();it!=wins.rend();++it)if(!it->minimized&&x>=it->r.left&&x<it->r.right&&y>=it->r.top&&y<it->r.bottom)return it->id;return -1;}
   bool taskbarHit(int x,int y,int W,int H,int& id)const{
     if(y<H-54||x<150||x>=W-86||wins.empty())return false;
-    int bw=std::max(92,std::min(168,(W-252)/(int)wins.size()));
-    int i=(x-150)/bw;if(i<0||i>=(int)wins.size())return false;
-    id=wins[(size_t)i].id;return true;
+    int bw=std::max(92,std::min(168,(W-252)/(int)wins.size()));int i=(x-150)/bw;
+    if(i<0||i>=(int)wins.size())return false;id=wins[(size_t)i].id;return true;
   }
   void startSnake(){snake={{12,8},{11,8},{10,8}};food={17,8};dir=0;}
   void tick(){frameTicks++;if(frameTicks%5||snake.empty())return;POINT h=snake.front();if(dir==0)h.x++;else if(dir==1)h.y--;else if(dir==2)h.x--;else h.y++;if(h.x<1||h.x>28||h.y<1||h.y>16){startSnake();return;}for(auto&p:snake)if(p.x==h.x&&p.y==h.y){startSnake();return;}snake.insert(snake.begin(),h);if(h.x==food.x&&h.y==food.y){food={(int)(rng()%28)+1,(int)(rng()%16)+1};}else snake.pop_back();}
-  void key(UINT v,bool down,bool ctrl,bool shift,bool winKey){
+  void key(UINT v,bool down,bool ctrl,bool shift,bool alt,bool winKey){
     if(!down)return;
-    if(winKey&&v=='L'){launcher=!launcher;search.clear();return;} if(winKey&&v=='T'){open(TERM);return;} if(winKey&&v=='E'){open(FILES);return;} if(winKey&&v=='S'){open(SETTINGS);return;} if(winKey&&v=='C'){open(CALC);return;}
+    if(ctrl&&v==VK_W){if(Window*w=find()){closeWindow(w->id);return;}}
+    if(ctrl&&v=='L'){if(Window*w=find();w&&w->app==BROWSER){browserFocus=true;w->input.clear();return;}}
+    if(alt&&v==VK_TAB){if(wins.size()>1){auto it=std::find_if(wins.begin(),wins.end(),[&](const Window&x){return x.id==active;});size_t idx=it==wins.end()?0:(size_t)(it-wins.begin());for(size_t n=1;n<=wins.size();++n){auto&q=wins[(idx+n)%wins.size()];if(!q.minimized){bringToFront(q.id);break;}}}return;}
+    if(v==VK_F11){if(Window*w=find())toggleMaximize(*w);return;}
+    if(winKey&&v=='L'){launcher=!launcher;search.clear();return;}
+    if(winKey&&v>='1'&&v<='9'){int i=v-'1';if(i<(int)wins.size()){wins[(size_t)i].minimized=false;bringToFront(wins[(size_t)i].id);}return;} if(winKey&&v=='T'){open(TERM);return;} if(winKey&&v=='E'){open(FILES);return;} if(winKey&&v=='S'){open(SETTINGS);return;} if(winKey&&v=='C'){open(CALC);return;}
     if(launcher){if(v==VK_ESCAPE){launcher=false;return;}if(v==VK_BACK&&!search.empty())search.pop_back();else if(v>='A'&&v<='Z')search.push_back((char)(shift?v:(v-'A'+'a')));else if(v==VK_RETURN)choose();return;}
     Window*w=find();if(!w)return;
     if(w->app==SNAKE){if(v==VK_UP&&dir!=3)dir=1;else if(v==VK_RIGHT&&dir!=2)dir=0;else if(v==VK_DOWN&&dir!=1)dir=3;else if(v==VK_LEFT&&dir!=0)dir=2;}
-    else if(w->app==TERM){if(v==VK_RETURN){command(*w);w->input.clear();}else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();else if(v>=32&&v<127)w->input.push_back((char)v);}
+    else if(w->app==TERM){if(v==VK_RETURN){command(*w);w->input.clear();}else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();else if(v==VK_SPACE)w->input.push_back(' ');}
     else if(w->app==CALC){if(v==VK_RETURN)w->text=calc(w->input);else if(v==VK_BACK&&!w->input.empty())w->input.pop_back();else if(v>=32&&v<127)w->input.push_back((char)v);}
-    else if(w->app==EDIT){if(v==VK_F2){fs.put("/Documents/Welcome.fdoc",w->text);fs.save();status="saved";}else if(v==VK_BACK&&!w->text.empty())w->text.pop_back();else if(v>=32&&v<127)w->text.push_back((char)v);}
+    else if(w->app==EDIT){if(v==VK_F2){fs.put("/Documents/Welcome.fdoc",w->text);fs.save();status="saved";}else if(v==VK_BACK&&!w->text.empty())w->text.pop_back();else if(v==VK_SPACE)w->text.push_back(' ');}
     else if(w->app==SETTINGS&&v==VK_RETURN){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}
+  }
+  void charInput(UINT ch){
+    Window*w=find();if(!w||launcher)return;
+    if(w->app==TERM){if(ch==13){command(*w);w->input.clear();}else if(ch>=32&&ch<127)w->input.push_back((char)ch);}
+    else if(w->app==CALC){if(ch==13)w->text=calc(w->input);else if(ch>=32&&ch<127)w->input.push_back((char)ch);}
+    else if(w->app==EDIT){if(ch==13)w->text+="\n";else if(ch>=32&&ch<127)w->text.push_back((char)ch);}
+    else if(w->app==BROWSER&&browserFocus){if(ch==13){w->text="Requested URL: "+w->input;browserFocus=false;}else if(ch>=32&&ch<127)w->input.push_back((char)ch);}
   }
   void mouseDown(int x,int y,int W,int H){
     desktopW=W;desktopH=H;
     if(y>H-55&&x<145){launcher=!launcher;search.clear();return;}
     int taskId=-1;
-    if(taskbarHit(x,y,W,H,taskId)){
-      for(auto&w:wins)if(w.id==taskId){
-        if(w.id==active&&!w.minimized){w.minimized=true;activateTopVisible();}
-        else{w.minimized=false;bringToFront(w.id);}
-        return;
-      }
-    }
-    if(launcher){for(App a:{WELCOME,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE}){int k=(int)a;RECT b{W/2-225,140+k*36,W/2+225,170+k*36};if(PtInRect(&b,POINT{x,y})){open(a);launcher=false;return;}}return;}
-    if(x<130){if(y>=70&&y<140){open(FILES);return;}if(y>=150&&y<220){open(EDIT);return;}if(y>=230&&y<300){open(FEXE);return;}if(y>=310&&y<380){open(SETTINGS);return;}if(y>=390&&y<465){open(SNAKE);return;}}
+    if(taskbarHit(x,y,W,H,taskId)){for(auto&w:wins)if(w.id==taskId){if(w.id==active&&!w.minimized){w.minimized=true;activateTopVisible();}else{w.minimized=false;bringToFront(w.id);}return;}}
+    if(launcher){for(App a:{WELCOME,APPS,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE}){int k=(int)a;RECT b{W/2-225,140+k*36,W/2+225,170+k*36};if(PtInRect(&b,POINT{x,y})){open(a);launcher=false;return;}}return;}
+    if(x<130){if(y>=70&&y<140){open(FILES);return;}if(y>=150&&y<220){open(EDIT);return;}if(y>=230&&y<300){open(APPS);return;}if(y>=310&&y<380){open(SETTINGS);return;}if(y>=390&&y<465){open(SNAKE);return;}}
     int hit=windowAt(x,y);if(hit==-1)return;
-    bringToFront(hit);
-    Window*w=find();if(!w)return;
-    int ly=y-w->r.top,lx=x-w->r.left;
+    bringToFront(hit);Window*w=find();if(!w)return;
+    int ly=y-w->r.top,lx=x-w->r.left,ww=w->r.right-w->r.left;
+    if(!w->maximized&&x>=w->r.right-18&&y>=w->r.bottom-18){resize=true;rx=x;ry=y;return;}
     if(ly<32){
-      int ww=w->r.right-w->r.left;
-      if(lx>=ww-78&&lx<ww-52){minimizeWindow(w->id);drag=false;return;}
-      if(lx>=ww-52&&lx<ww-26){toggleMaximize(*w);drag=false;return;}
-      if(lx>=ww-26){closeWindow(w->id);drag=false;return;}
-      if(w->maximized){drag=false;return;}
+      if(lx>=ww-78&&lx<ww-52){minimizeWindow(w->id);return;}
+      if(lx>=ww-52&&lx<ww-26){toggleMaximize(*w);return;}
+      if(lx>=ww-26){closeWindow(w->id);return;}
+      if(w->maximized)return;
       drag=true;ox=x-w->r.left;oy=y-w->r.top;return;
     }
+    if(w->app==APPS&&ly>=108){int idx=(ly-108)/38;std::array<App,9>apps={TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER};if(idx>=0&&idx<(int)apps.size())launchBinary("/System/Bin/"+std::string(idx==0?"terminal":idx==1?"files":idx==2?"settings":idx==3?"calculator":idx==4?"paint":idx==5?"snake":idx==6?"monitor":idx==7?"edit":"browser")+".fexe");return;}
+    if(w->app==FILES&&ly>=102){int idx=(ly-102)/28;auto entries=fs.list(fileDir);if(idx>=0&&idx<(int)entries.size()){auto n=entries[(size_t)idx];if(n.size()>5&&n.rfind(".fexe")==n.size()-5)launchBinary(fileDir+"/"+n);return;}}
     if(w->app==SETTINGS){if(ly>=78&&ly<114){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}else if(ly>=114&&ly<152){wallpaper=0;fs.put("/Config/wallpaper","aurora");fs.save();}else if(ly>=152&&ly<190){wallpaper=1;fs.put("/Config/wallpaper","sunset");fs.save();}else if(ly>=190&&ly<228){wallpaper=2;fs.put("/Config/wallpaper","plain");fs.save();}}
-    if(w->app==PAINT&&x>w->r.left+12&&y>w->r.top+42){paintPts.push_back({x-w->r.left,y-w->r.top});}
+    if(w->app==PAINT&&x>w->r.left+12&&y>w->r.top+42)paintPts.push_back({x-w->r.left,y-w->r.top});
   }
-  void mouseMove(int x,int y){if(drag){if(auto*w=find()){if(w->maximized)return;w->r.left=x-ox;w->r.top=y-oy;w->r.right=w->r.left+680;w->r.bottom=w->r.top+430;w->restoreR=w->r;}}else{auto*w=find();if(w&&w->app==PAINT&&GetAsyncKeyState(VK_LBUTTON)<0)paintPts.push_back({x-w->r.left,y-w->r.top});}}
-  void mouseUp(){drag=false;}
+  void mouseMove(int x,int y){if(drag){if(auto*w=find()){if(w->maximized)return;w->r.left=x-ox;w->r.top=y-oy;w->r.right=w->r.left+680;w->r.bottom=w->r.top+430;w->restoreR=w->r;}}else if(resize){if(auto*w=find()){w->r.right=std::max(w->r.left+360,x);w->r.bottom=std::max(w->r.top+240,y);w->restoreR=w->r;}}else{auto*w=find();if(w&&w->app==PAINT&&GetAsyncKeyState(VK_LBUTTON)<0)paintPts.push_back({x-w->r.left,y-w->r.top});}}
+  void mouseUp(){drag=false;resize=false;}
   bool animating()const{for(auto&w:wins)if(w.id==active)return w.app==SNAKE;return false;}
-  void draw(HDC dc,int W,int H){paintDesktop(dc,W,H);paintWindows(dc);}
+  void draw(HDC dc,int W,int H){paintDesktop(dc,W,H);paintWindows(dc);if(frameTicks<toastUntil&&!toast.empty()){HBRUSH b=CreateSolidBrush(dark?RGB(30,42,58):RGB(245,247,250));RECT q{24,H-96,430,H-58};FillRect(dc,&q,b);DeleteObject(b);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,dark?RGB(235,245,255):RGB(35,45,55));TextOutA(dc,38,H-84,toast.c_str(),(int)toast.size());}}
 private:
-  bool drag=false;int ox=0,oy=0;bool browserFocus=false;
+  bool drag=false;bool resize=false;int ox=0,oy=0,rx=0,ry=0;bool browserFocus=false;
   Window*find(){for(auto&w:wins)if(w.id==active)return&w;return nullptr;}
   void paintDesktop(HDC dc,int W,int H){
     for(int y=0;y<H;y++){int r,g,b;if(wallpaper==0){r=9+(y*18/H);g=26+(y*24/H);b=55+(y*42/H);}else if(wallpaper==1){r=86+(y*50/H);g=24+(y*28/H);b=64+(y*18/H);}else{r=34;g=38;b=44;}HBRUSH br=CreateSolidBrush(RGB(r,g,b));RECT q{0,y,W,y+1};FillRect(dc,&q,br);DeleteObject(br);}
@@ -202,7 +213,7 @@ private:
   void paintWindows(HDC dc){for(auto&w:wins)if(!w.minimized)paintWindow(dc,w);if(launcher)paintLauncher(dc);}
   void icon(HDC dc,int x,int y,const std::string&g,const std::string&l){HBRUSH b=CreateSolidBrush(RGB(45,100,170));RECT q{x,y,x+48,y+48};FillRect(dc,&q,b);DeleteObject(b);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(245,250,255));TextOutA(dc,x+7,y+17,g.c_str(),(int)g.size());TextOutA(dc,x,y+53,l.c_str(),(int)l.size());}
   void button(HDC dc,int x,int y,int w,const std::string&t,bool on){HBRUSH b=CreateSolidBrush(on?RGB(48,102,177):(dark?RGB(28,42,59):RGB(238,242,247)));RECT q{x,y,x+w,y+34};FillRect(dc,&q,b);DeleteObject(b);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(238,246,255));TextOutA(dc,x+9,y+10,t.c_str(),(int)t.size());}
-  void paintLauncher(HDC dc){int W=1280;HBRUSH b=CreateSolidBrush(dark?RGB(18,27,40):RGB(250,252,255));RECT q{W/2-245,70,W/2+245,650};FillRect(dc,&q,b);DeleteObject(b);SetTextColor(dc,dark?RGB(240,248,255):RGB(25,35,45));TextOutA(dc,W/2-215,88,"FORGE LAUNCHER",15);TextOutA(dc,W/2-215,116,("Search: "+search).c_str(),8+(int)search.size());int k=0;for(App a:{WELCOME,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE}){if(!search.empty()&&title(a).find(search)==std::string::npos)continue;button(dc,W/2-215,140+k*39,430,title(a),false);k++;}}
+  void paintLauncher(HDC dc){int W=desktopW;HBRUSH b=CreateSolidBrush(dark?RGB(18,27,40):RGB(250,252,255));RECT q{W/2-245,70,W/2+245,650};FillRect(dc,&q,b);DeleteObject(b);SetTextColor(dc,dark?RGB(240,248,255):RGB(25,35,45));TextOutA(dc,W/2-215,88,"FORGE LAUNCHER",15);TextOutA(dc,W/2-215,116,("Search: "+search).c_str(),8+(int)search.size());int k=0;for(App a:{WELCOME,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE}){if(!search.empty()&&title(a).find(search)==std::string::npos)continue;button(dc,W/2-215,140+k*39,430,title(a),false);k++;}}
   void paintWindow(HDC dc,Window&w){
     HBRUSH sh=CreateSolidBrush(RGB(0,0,0));RECT sr{w.r.left+5,w.r.top+5,w.r.right+5,w.r.bottom+5};FillRect(dc,&sr,sh);DeleteObject(sh);
     HBRUSH bg=CreateSolidBrush(dark?RGB(24,33,47):RGB(250,251,253));FillRect(dc,&w.r,bg);DeleteObject(bg);HBRUSH bar=CreateSolidBrush(RGB(42,88,145));RECT tr{w.r.left,w.r.top,w.r.right,w.r.top+32};FillRect(dc,&tr,bar);DeleteObject(bar);
@@ -254,7 +265,8 @@ static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
   if(m==WM_LBUTTONDOWN){RECT r;GetClientRect(h,&r);g->mouseDown(LOWORD(l),HIWORD(l),r.right,r.bottom);SetCapture(h);InvalidateRect(h,nullptr,FALSE);return 0;}
   if(m==WM_MOUSEMOVE){g->mouseMove(LOWORD(l),HIWORD(l));InvalidateRect(h,nullptr,FALSE);return 0;}
   if(m==WM_LBUTTONUP){g->mouseUp();ReleaseCapture();return 0;}
-  if(m==WM_KEYDOWN){bool c=GetKeyState(VK_CONTROL)<0,s=GetKeyState(VK_SHIFT)<0,win=GetKeyState(VK_LWIN)<0||GetKeyState(VK_RWIN)<0;g->key((UINT)w,true,c,s,win);InvalidateRect(h,nullptr,FALSE);return 0;}
+  if(m==WM_KEYDOWN){bool c=GetKeyState(VK_CONTROL)<0,s=GetKeyState(VK_SHIFT)<0,a=GetKeyState(VK_MENU)<0,win=GetKeyState(VK_LWIN)<0||GetKeyState(VK_RWIN)<0;g->key((UINT)w,true,c,s,a,win);InvalidateRect(h,nullptr,FALSE);return 0;}
+  if(m==WM_CHAR){g->charInput((UINT)w);InvalidateRect(h,nullptr,FALSE);return 0;}
   if(m==WM_DESTROY){PostQuitMessage(0);return 0;}return DefWindowProcA(h,m,w,l);
 }
 
