@@ -49,7 +49,7 @@ struct FS {
   explicit FS(std::filesystem::path p):path(std::move(p)){}
   std::string read(const std::string& n)const{for(auto&x:files)if(x.first==n)return x.second;return{};}
   void put(const std::string& n,const std::string& d){for(auto&x:files)if(x.first==n){x.second=d;return;}files.push_back({n,d});}
-  void save()const{std::filesystem::path t=path;t+=L".tmp";std::ofstream f(t,std::ios::binary);f.write("FOS1",4);u32 n=(u32)files.size();f.write((char*)&n,4);for(auto&x:files){u32 a=(u32)x.first.size(),b=(u32)x.second.size();f.write((char*)&a,4);f.write((char*)&b,4);f.write(x.first.data(),a);if(b)f.write(x.second.data(),b);}f.close();MoveFileExW(t.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);}
+  bool save()const{std::filesystem::path t=path;t+=L".tmp";std::ofstream f(t,std::ios::binary);f.write("FOS1",4);u32 n=(u32)files.size();f.write((char*)&n,4);for(auto&x:files){u32 a=(u32)x.first.size(),b=(u32)x.second.size();f.write((char*)&a,4);f.write((char*)&b,4);f.write(x.first.data(),a);if(b)f.write(x.second.data(),b);}f.close();return MoveFileExW(t.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0;}
   bool load(){files.clear();std::ifstream f(path,std::ios::binary);if(!f)return init();char m[4]{};f.read(m,4);if(std::string(m,4)!="FOS1")return init();u32 n=0;f.read((char*)&n,4);if(!f||n>10000)return false;for(u32 i=0;i<n;i++){u32 a=0,b=0;f.read((char*)&a,4);f.read((char*)&b,4);if(!f||a>8192||b>1<<20)return false;std::string p(a,0),d(b,0);f.read(p.data(),a);if(b)f.read(d.data(),b);if(!f)return false;files.push_back({p,d});}return true;}
   std::vector<std::string> list(const std::string&dir)const{std::vector<std::string>o;std::string p=dir;if(p.size()>1&&p.back()!='/')p+='/';for(auto&x:files){if(x.first.rfind(p,0)==0){auto r=x.first.substr(p.size());auto s=r.find('/');auto n=r.substr(0,s);if(!n.empty()&&std::find(o.begin(),o.end(),n)==o.end())o.push_back(n);}}std::sort(o.begin(),o.end());return o;}
   size_t bytes()const{size_t n=0;for(auto&x:files)n+=x.first.size()+x.second.size();return n;}
@@ -84,7 +84,7 @@ static bool run_fexe(const FExeImage& im,u32& result){
 }
 
 enum App{WELCOME,TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE};
-struct Window{App app;RECT r;std::string title,text,input;int id;};
+struct Window{App app;RECT r;std::string title,text,input;bool minimized=false;bool maximized=false;int id;};
 
 class Desktop {
 public:
@@ -163,9 +163,9 @@ static forge::Desktop* g=nullptr; static HWND gw=nullptr;
 static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
   if(m==WM_PAINT){PAINTSTRUCT p;HDC dc=BeginPaint(h,&p);RECT r;GetClientRect(h,&r);g->draw(dc,r.right,r.bottom);EndPaint(h,&p);return 0;}
   if(m==WM_TIMER){g->cpu.step();InvalidateRect(h,nullptr,FALSE);return 0;}
-  if(m==WM_LBUTTONDOWN){RECT r;GetClientRect(h,&r);g->click(LOWORD(l),HIWORD(l),r.right,r.bottom);SetCapture(h);InvalidateRect(h,nullptr,FALSE);return 0;}
-  if(m==WM_MOUSEMOVE){g->move(LOWORD(l),HIWORD(l));InvalidateRect(h,nullptr,FALSE);return 0;}
-  if(m==WM_LBUTTONUP){g->up();ReleaseCapture();return 0;}
+  if(m==WM_LBUTTONDOWN){RECT r;GetClientRect(h,&r);g->mouseDown(LOWORD(l),HIWORD(l),r.right,r.bottom);SetCapture(h);InvalidateRect(h,nullptr,FALSE);return 0;}
+  if(m==WM_MOUSEMOVE){g->mouseMove(LOWORD(l),HIWORD(l));InvalidateRect(h,nullptr,FALSE);return 0;}
+  if(m==WM_LBUTTONUP){g->mouseUp();ReleaseCapture();return 0;}
   if(m==WM_KEYDOWN){bool c=GetKeyState(VK_CONTROL)<0,s=GetKeyState(VK_SHIFT)<0,win=GetKeyState(VK_LWIN)<0||GetKeyState(VK_RWIN)<0;g->key((UINT)w,true,c,s,win);InvalidateRect(h,nullptr,FALSE);return 0;}
   if(m==WM_DESTROY){PostQuitMessage(0);return 0;}return DefWindowProcA(h,m,w,l);
 }
@@ -173,7 +173,7 @@ static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
 int main(int argc,char**argv){
   std::filesystem::path disk=L"forgeos.forgefs";bool head=false,rec=false;
   for(int i=1;i<argc;i++){std::string a=argv[i];if(a=="--headless")head=true;else if(a=="--recovery")rec=true;else if(a=="--version"){puts("ForgeOS 1.0.0 / IronBox 1.0 / Forge32");return 0;}else if(a=="--disk"&&i+1<argc)disk=std::filesystem::path(argv[++i]);}
-  forge::FS fs(disk);if(!fs.load())return 2;forge::FExeImage boot;std::string ferr;if(!forge::load_fexe(fs.read("/System/Bin/hello.fexe"),boot,ferr))return 10;u32 fresult=0;if(!forge::run_fexe(boot,fresult))return 11;forge::Desktop d(fs);g=&d;if(!d.cpu.self_test())return 12;if(head){fs.put("/Documents/persist-test.txt","ok");fs.save();forge::FS c(disk);if(!c.load()||c.read("/Documents/persist-test.txt")!="ok")return 13;c.put("/Documents/persist-test.txt","");c.save();return 0;}
+  forge::FS fs(disk);if(!fs.load())return 2;forge::FExeImage boot;std::string ferr;if(!forge::load_fexe(fs.read("/System/Bin/hello.fexe"),boot,ferr))return 10;forge::u32 fresult=0;if(!forge::run_fexe(boot,fresult))return 11;forge::Desktop d(fs);g=&d;if(!d.cpu.self_test())return 12;if(head){fs.put("/Documents/persist-test.txt","ok");fs.save();forge::FS c(disk);if(!c.load()||c.read("/Documents/persist-test.txt")!="ok")return 13;c.put("/Documents/persist-test.txt","");c.save();return 0;}
   if(rec){MessageBoxA(nullptr,"ForgeOS Recovery\n\nBoot normally\nSafe mode\nFilesystem check\nSnapshot restore\nDebug kernel","ForgeOS Recovery",MB_OK);return 0;}
   d.open(forge::WELCOME);d.open(forge::TERM);
   WNDCLASSA wc{};wc.hInstance=GetModuleHandleA(nullptr);wc.lpfnWndProc=proc;wc.lpszClassName="IronBoxForgeOS";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);RegisterClassA(&wc);
