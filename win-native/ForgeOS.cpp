@@ -21,6 +21,7 @@
 
 namespace forge {
 using u32=std::uint32_t; using u8=std::uint8_t;
+static u32 crc32(const std::vector<u8>& d){u32 c=0xffffffffu;for(u8 b:d){c^=b;for(int i=0;i<8;i++)c=(c>>1)^((c&1)?0xedb88320u:0);}return c^0xffffffffu;}
 
 struct CPU {
   std::array<u32,8> r{}; u32 pc=0,sp=0,flags=0; bool user=true,halt=false;
@@ -50,6 +51,8 @@ struct FS {
   void put(const std::string& n,const std::string& d){for(auto&x:files)if(x.first==n){x.second=d;return;}files.push_back({n,d});}
   void save()const{std::filesystem::path t=path;t+=L".tmp";std::ofstream f(t,std::ios::binary);f.write("FOS1",4);u32 n=(u32)files.size();f.write((char*)&n,4);for(auto&x:files){u32 a=(u32)x.first.size(),b=(u32)x.second.size();f.write((char*)&a,4);f.write((char*)&b,4);f.write(x.first.data(),a);if(b)f.write(x.second.data(),b);}f.close();MoveFileExW(t.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);}
   bool load(){files.clear();std::ifstream f(path,std::ios::binary);if(!f)return init();char m[4]{};f.read(m,4);if(std::string(m,4)!="FOS1")return init();u32 n=0;f.read((char*)&n,4);if(!f||n>10000)return false;for(u32 i=0;i<n;i++){u32 a=0,b=0;f.read((char*)&a,4);f.read((char*)&b,4);if(!f||a>8192||b>1<<20)return false;std::string p(a,0),d(b,0);f.read(p.data(),a);if(b)f.read(d.data(),b);if(!f)return false;files.push_back({p,d});}return true;}
+  std::vector<std::string> list(const std::string&dir)const{std::vector<std::string>o;std::string p=dir;if(p.size()>1&&p.back()!='/')p+='/';for(auto&x:files){if(x.first.rfind(p,0)==0){auto r=x.first.substr(p.size());auto s=r.find('/');auto n=r.substr(0,s);if(!n.empty()&&std::find(o.begin(),o.end(),n)==o.end())o.push_back(n);}}std::sort(o.begin(),o.end());return o;}
+  size_t bytes()const{size_t n=0;for(auto&x:files)n+=x.first.size()+x.second.size();return n;}
   bool init(){files.clear();put("/System/boot.txt","ForgeOS boot volume\nForge32 VM online\nFEXE loader online\n");put("/Documents/Welcome.fdoc","Welcome to ForgeOS!\n\nA small native desktop environment running inside IronBox.\n");put("/Config/theme","midnight");put("/Config/wallpaper","aurora");put("/Config/accent","blue");put("/Users/Guest/profile","Guest");put("/Apps/README","Installed: Terminal Files Settings Calculator Paint Snake Monitor Edit Browser FEXE Runner");
     auto fexe=[&](u32 appId,const std::string& payload){std::string b; b+="FEXE"; b.push_back(1); b.push_back(1); b.push_back(0); b.push_back(0); u32 entry=0,cs=7,ds=(u32)payload.size(); auto put=[&](u32 v){for(int i=0;i<4;i++)b.push_back((char)(v>>(8*i)));}; put(entry);put(cs);put(ds);put(appId);put(0); std::string code; code.push_back(1);code.push_back(0);code.push_back((char)(appId&255));code.push_back((char)((appId>>8)&255));code.push_back((char)((appId>>16)&255));code.push_back((char)((appId>>24)&255));code.push_back(0); b+=code;b+=payload;std::vector<u8> raw(b.begin(),b.end());u32 sum=crc32(raw);for(int i=0;i<4;i++)b[24+i]=(char)(sum>>(8*i));return b;};
     put("/System/Bin/hello.fexe",fexe(100,"HELLO"));
@@ -155,7 +158,8 @@ private:
   void choose(){for(App a:{WELCOME,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE})if(title(a).find(search)!=std::string::npos){open(a);return;}}
   std::array<std::string,8>termLines{};
 };
-\nstatic forge::Desktop* g=nullptr; static HWND gw=nullptr;
+
+static forge::Desktop* g=nullptr; static HWND gw=nullptr;
 static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
   if(m==WM_PAINT){PAINTSTRUCT p;HDC dc=BeginPaint(h,&p);RECT r;GetClientRect(h,&r);g->draw(dc,r.right,r.bottom);EndPaint(h,&p);return 0;}
   if(m==WM_TIMER){g->cpu.step();InvalidateRect(h,nullptr,FALSE);return 0;}
