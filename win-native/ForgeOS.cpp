@@ -102,10 +102,10 @@ public:
   }
   void launchBinary(const std::string&path){
     FExeImage im;std::string e;u32 result=0;
-    if(!load_fexe(fs.read(path),im,e)){toast="Cannot load binary";toastUntil=frameTicks+45;open(FEXE);return;}
-    if(!run_fexe(im,result)){toast="Binary execution failed";toastUntil=frameTicks+45;open(FEXE);return;}
+    if(!load_fexe(fs.read(path),im,e)){toast="Cannot load binary";toastUntil=frameTicks+45;return;}
+    if(!run_fexe(im,result)){toast="Binary execution failed";toastUntil=frameTicks+45;return;}
     App a=appForBinary(path);
-    if(a==FEXE){toast="Unknown Forge binary";toastUntil=frameTicks+45;open(FEXE);return;}
+    if(a==FEXE){toast="Unknown Forge binary";toastUntil=frameTicks+45;return;}
     open(a);toast="Loaded "+path;toastUntil=frameTicks+35;
   }
   void open(App a){
@@ -151,6 +151,7 @@ public:
   void key(UINT v,bool down,bool ctrl,bool shift,bool alt,bool winKey){
     if(!down)return;
     if(ctrl&&v==VK_W){if(Window*w=find()){closeWindow(w->id);return;}}
+    if(alt&&v==VK_F4){if(Window*w=find()){closeWindow(w->id);return;}}
     if(ctrl&&v=='L'){if(Window*w=find();w&&w->app==BROWSER){browserFocus=true;w->input.clear();return;}}
     if(alt&&v==VK_TAB){if(wins.size()>1){auto it=std::find_if(wins.begin(),wins.end(),[&](const Window&x){return x.id==active;});size_t idx=it==wins.end()?0:(size_t)(it-wins.begin());for(size_t n=1;n<=wins.size();++n){auto&q=wins[(idx+n)%wins.size()];if(!q.minimized){bringToFront(q.id);break;}}}return;}
     if(v==VK_F11){if(Window*w=find())toggleMaximize(*w);return;}
@@ -166,8 +167,8 @@ public:
   }
   void charInput(UINT ch){
     Window*w=find();if(!w||launcher)return;
-    if(w->app==TERM){if(ch==13){command(*w);w->input.clear();}else if(ch>=32&&ch<127)w->input.push_back((char)ch);}
-    else if(w->app==CALC){if(ch==13)w->text=calc(w->input);else if(ch>=32&&ch<127)w->input.push_back((char)ch);}
+    if(w->app==TERM){if(ch>=32&&ch<127)w->input.push_back((char)ch);}
+    else if(w->app==CALC){if(ch>=32&&ch<127)w->input.push_back((char)ch);}
     else if(w->app==EDIT){if(ch==13)w->text+="\n";else if(ch>=32&&ch<127)w->text.push_back((char)ch);}
     else if(w->app==BROWSER&&browserFocus){if(ch==13){w->text="Requested URL: "+w->input;browserFocus=false;}else if(ch>=32&&ch<127)w->input.push_back((char)ch);}
   }
@@ -231,7 +232,6 @@ private:
       for(int k=0;k<(int)apps.size();k++){
         int col=k%3,row=k/3;int bx=x+col*215,by=y+row*72;
         button(dc,bx,by,195,title(apps[(size_t)k]),false);
-        TextOutA(dc,bx+12,by+10,title(apps[(size_t)k]).c_str(),(int)title(apps[(size_t)k]).size());
       }
     }
     else if(w.app==TERM){TextOutA(dc,x,y,"$ ",2);TextOutA(dc,x+18,y,w.input.c_str(),(int)w.input.size());y+=24;for(auto&s:termLines)if(!s.empty()){TextOutA(dc,x,y,s.c_str(),(int)s.size());y+=21;}}
