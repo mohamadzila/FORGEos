@@ -150,7 +150,7 @@ public:
   void tick(){frameTicks++;if(frameTicks%5||snake.empty())return;POINT h=snake.front();if(dir==0)h.x++;else if(dir==1)h.y--;else if(dir==2)h.x--;else h.y++;if(h.x<1||h.x>28||h.y<1||h.y>16){startSnake();return;}for(auto&p:snake)if(p.x==h.x&&p.y==h.y){startSnake();return;}snake.insert(snake.begin(),h);if(h.x==food.x&&h.y==food.y){food={(int)(rng()%28)+1,(int)(rng()%16)+1};}else snake.pop_back();}
   void key(UINT v,bool down,bool ctrl,bool shift,bool alt,bool winKey){
     if(!down)return;
-    if(ctrl&&v==VK_W){if(Window*w=find()){closeWindow(w->id);return;}}
+    if(ctrl&&v=='W'){if(Window*w=find()){closeWindow(w->id);return;}}
     if(alt&&v==VK_F4){if(Window*w=find()){closeWindow(w->id);return;}}
     if(ctrl&&v=='L'){if(Window*w=find();w&&w->app==BROWSER){browserFocus=true;w->input.clear();return;}}
     if(alt&&v==VK_TAB){if(wins.size()>1){auto it=std::find_if(wins.begin(),wins.end(),[&](const Window&x){return x.id==active;});size_t idx=it==wins.end()?0:(size_t)(it-wins.begin());for(size_t n=1;n<=wins.size();++n){auto&q=wins[(idx+n)%wins.size()];if(!q.minimized){bringToFront(q.id);break;}}}return;}
@@ -200,7 +200,7 @@ public:
     if(w->app==SETTINGS){if(ly>=78&&ly<114){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}else if(ly>=114&&ly<152){wallpaper=0;fs.put("/Config/wallpaper","aurora");fs.save();}else if(ly>=152&&ly<190){wallpaper=1;fs.put("/Config/wallpaper","sunset");fs.save();}else if(ly>=190&&ly<228){wallpaper=2;fs.put("/Config/wallpaper","plain");fs.save();}}
     if(w->app==PAINT&&x>w->r.left+12&&y>w->r.top+42)paintPts.push_back({x-w->r.left,y-w->r.top});
   }
-  void mouseMove(int x,int y){if(drag){if(auto*w=find()){if(w->maximized)return;w->r.left=x-ox;w->r.top=y-oy;w->r.right=w->r.left+680;w->r.bottom=w->r.top+430;w->restoreR=w->r;}}else if(resize){if(auto*w=find()){w->r.right=std::max(w->r.left+360,x);w->r.bottom=std::max(w->r.top+240,y);w->restoreR=w->r;}}else{auto*w=find();if(w&&w->app==PAINT&&GetAsyncKeyState(VK_LBUTTON)<0)paintPts.push_back({x-w->r.left,y-w->r.top});}}
+  void mouseMove(int x,int y){if(drag){if(auto*w=find()){if(w->maximized)return;w->r.left=x-ox;w->r.top=y-oy;w->r.right=w->r.left+680;w->r.bottom=w->r.top+430;w->restoreR=w->r;}}else if(resize){if(auto*w=find()){w->r.right=std::max<LONG>(w->r.left+360,x);w->r.bottom=std::max<LONG>(w->r.top+240,y);w->restoreR=w->r;}}else{auto*w=find();if(w&&w->app==PAINT&&GetAsyncKeyState(VK_LBUTTON)<0)paintPts.push_back({x-w->r.left,y-w->r.top});}}
   void mouseUp(){drag=false;resize=false;}
   bool animating()const{for(auto&w:wins)if(w.id==active)return w.app==SNAKE;return false;}
   void draw(HDC dc,int W,int H){paintDesktop(dc,W,H);paintWindows(dc);if(frameTicks<toastUntil&&!toast.empty()){HBRUSH b=CreateSolidBrush(dark?RGB(30,42,58):RGB(245,247,250));RECT q{24,H-96,430,H-58};FillRect(dc,&q,b);DeleteObject(b);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,dark?RGB(235,245,255):RGB(35,45,55));TextOutA(dc,38,H-84,toast.c_str(),(int)toast.size());}}
