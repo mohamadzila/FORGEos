@@ -14,6 +14,7 @@
 #include <map>
 #include <random>
 #include <iomanip>
+#include <algorithm>
 #pragma comment(lib,"user32.lib")
 #pragma comment(lib,"gdi32.lib")
 #pragma comment(lib,"winhttp.lib")
@@ -84,16 +85,63 @@ static bool run_fexe(const FExeImage& im,u32& result){
 }
 
 enum App{WELCOME,TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE};
-struct Window{App app;RECT r;std::string title,text,input;bool minimized=false;bool maximized=false;int id;};
+struct Window{App app;RECT r;std::string title,text,input;bool minimized=false;bool maximized=false;int id;RECT restoreR{};bool hasRestore=false;};
 
 class Desktop {
 public:
-  FS&fs;CPU cpu;std::vector<Window>wins;int active=-1,next=1;bool launcher=false,dark=true;int wallpaper=0;std::string search;u64 frameTicks=0;std::vector<POINT>snake;POINT food{18,8};int dir=0;std::mt19937 rng{42};std::vector<POINT>paintPts;std::string status;
+  FS&fs;CPU cpu;std::vector<Window>wins;int active=-1,next=1;bool launcher=false,dark=true;int wallpaper=0;std::string search;u64 frameTicks=0;int desktopW=1280,desktopH=720;std::vector<POINT>snake;POINT food{18,8};int dir=0;std::mt19937 rng{42};std::vector<POINT>paintPts;std::string status;
   explicit Desktop(FS&f):fs(f){}
   void boot(){dark=fs.read("/Config/theme")!="light";auto w=fs.read("/Config/wallpaper");wallpaper=w=="sunset"?1:w=="plain"?2:0;open(WELCOME);open(TERM);}
   static std::string title(App a){switch(a){case TERM:return"ForgeTerminal";case FILES:return"ForgeFiles";case BROWSER:return"ForgeBrowser";case CALC:return"Calculator";case SETTINGS:return"Settings";case MONITOR:return"System Monitor";case EDIT:return"ForgeEdit";case PAINT:return"ForgePaint";case SNAKE:return"Snake";case FEXE:return"FEXE Runner";default:return"Welcome";}}
   static App appFromTitle(const std::string&s){for(App a:{TERM,FILES,BROWSER,CALC,SETTINGS,MONITOR,EDIT,PAINT,SNAKE,FEXE})if(title(a)==s)return a;return WELCOME;}
-  void open(App a){for(auto&w:wins)if(w.app==a){active=w.id;return;}Window w{a,{120+35*(next%4),90+25*(next%4),800+35*(next%4),540+25*(next%4)},title(a),"","",false,false,next++};if(a==EDIT)w.text=fs.read("/Documents/Welcome.fdoc");if(a==FEXE){FExeImage im;std::string e;if(load_fexe(fs.read("/System/Bin/hello.fexe"),im,e)){u32 v=0;run_fexe(im,v);w.text="Forge executable loader\n\nFile: /System/Bin/hello.fexe\nMagic: FEXE\nArchitecture: Forge32\nChecksum: valid\nVM result: "+std::to_string(v);}else w.text="FEXE loader error: "+e;}if(a==SNAKE)startSnake();wins.push_back(std::move(w));active=wins.back().id;}
+  void open(App a){
+    for(auto&w:wins)if(w.app==a){w.minimized=false;bringToFront(w.id);return;}
+    Window w{a,{120+35*(next%4),90+25*(next%4),800+35*(next%4),540+25*(next%4)},title(a),"","",false,false,next++};
+    w.restoreR=w.r;
+    if(a==EDIT)w.text=fs.read("/Documents/Welcome.fdoc");
+    if(a==FEXE){FExeImage im;std::string e;if(load_fexe(fs.read("/System/Bin/hello.fexe"),im,e)){u32 v=0;run_fexe(im,v);w.text="Forge executable loader\n\nFile: /System/Bin/hello.fexe\nMagic: FEXE\nArchitecture: Forge32\nChecksum: valid\nVM result: "+std::to_string(v);}else w.text="FEXE loader error: "+e;}
+    if(a==SNAKE)startSnake();
+    wins.push_back(std::move(w));active=wins.back().id;
+  }
+  void bringToFront(int id){
+    for(size_t i=0;i<wins.size();++i)if(wins[i].id==id){
+      if(i+1==wins.size()){active=id;return;}
+      Window w=std::move(wins[i]);wins.erase(wins.begin()+i);wins.push_back(std::move(w));active=id;return;
+    }
+  }
+  void activateTopVisible(){
+    int id=-1;for(auto it=wins.rbegin();it!=wins.rend();++it)if(!it->minimized){id=it->id;break;}
+    active=id;if(id!=-1)bringToFront(id);
+  }
+  void minimizeWindow(int id){
+    for(auto&w:wins)if(w.id==id){w.minimized=true;break;}
+    if(active==id)activateTopVisible();
+  }
+  void closeWindow(int id){
+    for(auto it=wins.begin();it!=wins.end();++it)if(it->id==id){wins.erase(it);break;}
+    if(active==id)activateTopVisible();
+  }
+  void toggleMaximize(Window&w){
+    if(w.maximized){
+      if(w.hasRestore)w.r=w.restoreR;
+      w.maximized=false;
+    }else{
+      w.restoreR=w.r;w.hasRestore=true;
+      w.r={8,8,std::max(16,desktopW-8),std::max(80,desktopH-62)};
+      w.maximized=true;
+    }
+  }
+  int windowAt(int x,int y)const{
+    for(auto it=wins.rbegin();it!=wins.rend();++it)
+      if(!it->minimized&&x>=it->r.left&&x<it->r.right&&y>=it->r.top&&y<it->r.bottom)return it->id;
+    return -1;
+  }
+  bool taskbarHit(int x,int y,int W,int H,int& id)const{
+    if(y<H-54||x<150||x>=W-86||wins.empty())return false;
+    int bw=std::max(92,std::min(168,(W-252)/(int)wins.size()));
+    int i=(x-150)/bw;if(i<0||i>=(int)wins.size())return false;
+    id=wins[(size_t)i].id;return true;
+  }
   void startSnake(){snake={{12,8},{11,8},{10,8}};food={17,8};dir=0;}
   void tick(){frameTicks++;if(frameTicks%5||snake.empty())return;POINT h=snake.front();if(dir==0)h.x++;else if(dir==1)h.y--;else if(dir==2)h.x--;else h.y++;if(h.x<1||h.x>28||h.y<1||h.y>16){startSnake();return;}for(auto&p:snake)if(p.x==h.x&&p.y==h.y){startSnake();return;}snake.insert(snake.begin(),h);if(h.x==food.x&&h.y==food.y){food={(int)(rng()%28)+1,(int)(rng()%16)+1};}else snake.pop_back();}
   void key(UINT v,bool down,bool ctrl,bool shift,bool winKey){
@@ -108,16 +156,34 @@ public:
     else if(w->app==SETTINGS&&v==VK_RETURN){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}
   }
   void mouseDown(int x,int y,int W,int H){
+    desktopW=W;desktopH=H;
     if(y>H-55&&x<145){launcher=!launcher;search.clear();return;}
-    if(!launcher){if(x<130&&y>=70&&y<140){open(FILES);return;}if(x<130&&y>=150&&y<220){open(EDIT);return;}if(x<130&&y>=230&&y<300){open(FEXE);return;}if(x<130&&y>=310&&y<380){open(SETTINGS);return;}if(x<130&&y>=390&&y<465){open(SNAKE);return;}}
+    int taskId=-1;
+    if(taskbarHit(x,y,W,H,taskId)){
+      for(auto&w:wins)if(w.id==taskId){
+        if(w.id==active&&!w.minimized){w.minimized=true;activateTopVisible();}
+        else{w.minimized=false;bringToFront(w.id);}
+        return;
+      }
+    }
     if(launcher){for(App a:{WELCOME,TERM,FILES,SETTINGS,CALC,PAINT,SNAKE,MONITOR,EDIT,BROWSER,FEXE}){int k=(int)a;RECT b{W/2-225,140+k*36,W/2+225,170+k*36};if(PtInRect(&b,POINT{x,y})){open(a);launcher=false;return;}}return;}
-    for(auto it=wins.rbegin();it!=wins.rend();++it){if(x>=it->r.left&&x<it->r.right&&y>=it->r.top&&y<it->r.top+32){active=it->id;drag=true;ox=x-it->r.left;oy=y-it->r.top;return;}}
+    if(x<130){if(y>=70&&y<140){open(FILES);return;}if(y>=150&&y<220){open(EDIT);return;}if(y>=230&&y<300){open(FEXE);return;}if(y>=310&&y<380){open(SETTINGS);return;}if(y>=390&&y<465){open(SNAKE);return;}}
+    int hit=windowAt(x,y);if(hit==-1)return;
+    bringToFront(hit);
     Window*w=find();if(!w)return;
-    int ly=y-w->r.top;
+    int ly=y-w->r.top,lx=x-w->r.left;
+    if(ly<32){
+      int ww=w->r.right-w->r.left;
+      if(lx>=ww-78&&lx<ww-52){minimizeWindow(w->id);drag=false;return;}
+      if(lx>=ww-52&&lx<ww-26){toggleMaximize(*w);drag=false;return;}
+      if(lx>=ww-26){closeWindow(w->id);drag=false;return;}
+      if(w->maximized){drag=false;return;}
+      drag=true;ox=x-w->r.left;oy=y-w->r.top;return;
+    }
     if(w->app==SETTINGS){if(ly>=78&&ly<114){dark=!dark;fs.put("/Config/theme",dark?"midnight":"light");fs.save();}else if(ly>=114&&ly<152){wallpaper=0;fs.put("/Config/wallpaper","aurora");fs.save();}else if(ly>=152&&ly<190){wallpaper=1;fs.put("/Config/wallpaper","sunset");fs.save();}else if(ly>=190&&ly<228){wallpaper=2;fs.put("/Config/wallpaper","plain");fs.save();}}
     if(w->app==PAINT&&x>w->r.left+12&&y>w->r.top+42){paintPts.push_back({x-w->r.left,y-w->r.top});}
   }
-  void mouseMove(int x,int y){if(drag){if(auto*w=find()){w->r.left=x-ox;w->r.top=y-oy;w->r.right=w->r.left+680;w->r.bottom=w->r.top+430;}}else{auto*w=find();if(w&&w->app==PAINT&&GetAsyncKeyState(VK_LBUTTON)<0)paintPts.push_back({x-w->r.left,y-w->r.top});}}
+  void mouseMove(int x,int y){if(drag){if(auto*w=find()){if(w->maximized)return;w->r.left=x-ox;w->r.top=y-oy;w->r.right=w->r.left+680;w->r.bottom=w->r.top+430;w->restoreR=w->r;}}else{auto*w=find();if(w&&w->app==PAINT&&GetAsyncKeyState(VK_LBUTTON)<0)paintPts.push_back({x-w->r.left,y-w->r.top});}}
   void mouseUp(){drag=false;}
   bool animating()const{for(auto&w:wins)if(w.id==active)return w.app==SNAKE;return false;}
   void draw(HDC dc,int W,int H){paintDesktop(dc,W,H);paintWindows(dc);}
@@ -128,8 +194,10 @@ private:
     for(int y=0;y<H;y++){int r,g,b;if(wallpaper==0){r=9+(y*18/H);g=26+(y*24/H);b=55+(y*42/H);}else if(wallpaper==1){r=86+(y*50/H);g=24+(y*28/H);b=64+(y*18/H);}else{r=34;g=38;b=44;}HBRUSH br=CreateSolidBrush(RGB(r,g,b));RECT q{0,y,W,y+1};FillRect(dc,&q,br);DeleteObject(br);}
     icon(dc,28,72,"PC","This PC");icon(dc,28,155,"DOC","Documents");icon(dc,28,238,"APP","Apps");icon(dc,28,321,"SET","Settings");icon(dc,28,404,"GAM","Snake");
     SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(225,238,250));TextOutA(dc,24,16,"FORGEOS",7);TextOutA(dc,112,16,"Desktop",7);
-    HBRUSH tb=CreateSolidBrush(dark?RGB(12,18,28):RGB(228,234,241));RECT t{0,H-54,W,H};FillRect(dc,&t,tb);DeleteObject(tb);button(dc,10,H-44,128,"START",false);
-    int x=150;for(auto&w:wins)if(!w.minimized){button(dc,x,H-44,145,w.title,active==w.id);x+=150;}SYSTEMTIME st;GetLocalTime(&st);char tm[16];sprintf_s(tm,"%02u:%02u",st.wHour,st.wMinute);SetTextColor(dc,dark?RGB(210,225,240):RGB(45,55,65));TextOutA(dc,W-66,H-31,tm,5);
+    HBRUSH tb=CreateSolidBrush(dark?RGB(12,18,28):RGB(228,234,241));RECT t{0,H-54,W,H};FillRect(dc,&t,tb);DeleteObject(tb);
+    button(dc,10,H-44,128,"START",false);
+    int count=(int)wins.size();if(count>0){int bw=std::max(92,std::min(168,(W-252)/count));int x=150;for(auto&w:wins){std::string tab=w.title;if(w.minimized)tab="[ "+tab+" ]";button(dc,x,H-44,bw-6,tab,w.id==active&&!w.minimized);x+=bw;}}
+    SYSTEMTIME st;GetLocalTime(&st);char tm[16];sprintf_s(tm,"%02u:%02u",st.wHour,st.wMinute);SetTextColor(dc,dark?RGB(210,225,240):RGB(45,55,65));TextOutA(dc,W-66,H-31,tm,5);
   }
   void paintWindows(HDC dc){for(auto&w:wins)if(!w.minimized)paintWindow(dc,w);if(launcher)paintLauncher(dc);}
   void icon(HDC dc,int x,int y,const std::string&g,const std::string&l){HBRUSH b=CreateSolidBrush(RGB(45,100,170));RECT q{x,y,x+48,y+48};FillRect(dc,&q,b);DeleteObject(b);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(245,250,255));TextOutA(dc,x+7,y+17,g.c_str(),(int)g.size());TextOutA(dc,x,y+53,l.c_str(),(int)l.size());}
@@ -138,7 +206,7 @@ private:
   void paintWindow(HDC dc,Window&w){
     HBRUSH sh=CreateSolidBrush(RGB(0,0,0));RECT sr{w.r.left+5,w.r.top+5,w.r.right+5,w.r.bottom+5};FillRect(dc,&sr,sh);DeleteObject(sh);
     HBRUSH bg=CreateSolidBrush(dark?RGB(24,33,47):RGB(250,251,253));FillRect(dc,&w.r,bg);DeleteObject(bg);HBRUSH bar=CreateSolidBrush(RGB(42,88,145));RECT tr{w.r.left,w.r.top,w.r.right,w.r.top+32};FillRect(dc,&tr,bar);DeleteObject(bar);
-    SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(245,250,255));TextOutA(dc,w.r.left+12,w.r.top+8,w.title.c_str(),(int)w.title.size());SetTextColor(dc,dark?RGB(205,218,232):RGB(50,60,70));int x=w.r.left+16,y=w.r.top+50;
+    SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(245,250,255));TextOutA(dc,w.r.left+12,w.r.top+8,w.title.c_str(),(int)w.title.size());int ww=w.r.right-w.r.left;button(dc,w.r.right-78,w.r.top+3,24,"_",false);button(dc,w.r.right-52,w.r.top+3,24,"[]",false);button(dc,w.r.right-26,w.r.top+3,24,"X",false);SetTextColor(dc,dark?RGB(205,218,232):RGB(50,60,70));int x=w.r.left+16,y=w.r.top+50;
     if(w.app==WELCOME){TextOutA(dc,x,y,"Welcome to ForgeOS",18);y+=26;TextOutA(dc,x,y,"A desktop, not a void: wallpaper, icons, taskbar and launcher.",58);y+=26;TextOutA(dc,x,y,"Preinstalled: Terminal Files Settings Calculator Paint Snake Monitor Edit Browser FEXE Runner",78);}
     else if(w.app==TERM){TextOutA(dc,x,y,"$ ",2);TextOutA(dc,x+18,y,w.input.c_str(),(int)w.input.size());y+=24;for(auto&s:termLines)if(!s.empty()){TextOutA(dc,x,y,s.c_str(),(int)s.size());y+=21;}}
     else if(w.app==FILES){TextOutA(dc,x,y,"ForgeFS volume",15);y+=25;TextOutA(dc,x,y,"/Documents",10);y+=22;TextOutA(dc,x,y,"Welcome.fdoc",12);y+=26;TextOutA(dc,x,y,"/System/Bin",11);y+=22;for(auto&s:fs.list("/System/Bin")){TextOutA(dc,x,y,s.c_str(),(int)s.size());y+=20;}}
