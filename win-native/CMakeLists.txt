@@ -11,5 +11,5 @@ if(MSVC)
   target_compile_options(ironbox PRIVATE /W4 /permissive- /EHsc /utf-8)
 endif()
 
-target_compile_definitions(ironbox PRIVATE FORGEOS_WIN32=1)
+target_compile_definitions(ironbox PRIVATE FORGEOS_WIN32=1 WIN32_LEAN_AND_MEAN=1)
 target_link_libraries(ironbox PRIVATE user32 gdi32 winmm ws2_32)
